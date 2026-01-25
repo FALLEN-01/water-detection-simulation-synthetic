@@ -1,4 +1,4 @@
 # CSV data files
-water_test.csv
-water_train.csv
+*.csv
+
 
