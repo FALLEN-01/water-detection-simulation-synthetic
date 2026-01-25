@@ -92,28 +92,16 @@ def generate_training_data():
         total_flow *= random.uniform(0.85, 1.15)
         total_flow += random.gauss(0, 0.3)
         
-        # Pressure varies inversely with flow (higher flow = lower pressure)
-        if total_flow < 3:
-            pressure = random.uniform(50, 58)
-        elif total_flow < 6:
-            pressure = random.uniform(45, 52)
-        elif total_flow < 10:
-            pressure = random.uniform(40, 48)
-        else:
-            pressure = random.uniform(35, 45)
-        
-        # Add pressure noise
-        pressure += random.gauss(0, 1.5)
-        
-        # Other parameters
-        turbidity = random.uniform(0.3, 1.5)  # Lower turbidity for normal flow
+        # Temperature sensor (required)
         temperature = random.uniform(18, 24)  # Celsius
-        turbidity += random.gauss(0, 0.1)
         temperature += random.gauss(0, 0.3)
+        
+        # Turbidity sensor (auxiliary - optional, for water quality monitoring)
+        turbidity = random.uniform(0.3, 1.5)  # NTU - lower for normal flow
+        turbidity += random.gauss(0, 0.1)
         
         # Ensure valid ranges
         total_flow = max(0.2, min(MAX_FLOW, total_flow))  # Always some flow in building
-        pressure = max(30, min(60, pressure))
         turbidity = max(0, turbidity)
         
         # Flow duration tracking
@@ -123,9 +111,8 @@ def generate_training_data():
             'timestamp': timestamp,
             'flow_rate': total_flow,
             'flow_normalized': total_flow / MAX_FLOW,
-            'pressure': pressure,
-            'turbidity': turbidity,
             'temperature': temperature,
+            'turbidity': turbidity,  # Auxiliary sensor
             'flow_duration': flow_duration,
             'hour': hour,
             'day_of_week': day_of_week,
@@ -165,9 +152,10 @@ def generate_test_data(train_df):
                 test_df.at[i, 'flow_rate'] += leak_severity * MAX_FLOW * 0.3
                 test_df.at[i, 'flow_normalized'] = test_df.at[i, 'flow_rate'] / MAX_FLOW
             
-            # Leak effects on other parameters
-            test_df.at[i, 'pressure'] -= random.uniform(5, 15)
-            test_df.at[i, 'pressure'] = max(20, test_df.at[i, 'pressure'])
+            # Leak effects on sensors
+            # Temperature may slightly increase due to friction/pipe stress
+            test_df.at[i, 'temperature'] += random.uniform(0.5, 2.0)
+            # Turbidity increases (auxiliary sensor - if available)
             test_df.at[i, 'turbidity'] += random.uniform(0.5, 2.0)
             test_df.at[i, 'label'] = 1
     
@@ -219,26 +207,26 @@ def visualize_data(train_df, test_df):
     ax3.set_ylabel('Avg Flow Rate (L/min)')
     ax3.grid(True, alpha=0.3, axis='y')
     
-    # Plot 4: Pressure vs Flow
+    # Plot 4: Temperature vs Flow
     ax4 = plt.subplot(3, 2, 4)
     ax4.scatter(test_sample[test_sample['label']==0]['flow_rate'], 
-                test_sample[test_sample['label']==0]['pressure'], 
+                test_sample[test_sample['label']==0]['temperature'], 
                 alpha=0.3, s=1, label='Normal', color='blue')
     ax4.scatter(test_sample[test_sample['label']==1]['flow_rate'], 
-                test_sample[test_sample['label']==1]['pressure'], 
+                test_sample[test_sample['label']==1]['temperature'], 
                 alpha=0.7, s=2, label='Leak', color='red')
-    ax4.set_title('Pressure vs Flow Rate', fontsize=12, fontweight='bold')
+    ax4.set_title('Temperature vs Flow Rate', fontsize=12, fontweight='bold')
     ax4.set_xlabel('Flow Rate (L/min)')
-    ax4.set_ylabel('Pressure (PSI)')
+    ax4.set_ylabel('Temperature (°C)')
     ax4.legend()
     ax4.grid(True, alpha=0.3)
     
-    # Plot 5: Turbidity Distribution
+    # Plot 5: Turbidity Distribution (Auxiliary Sensor)
     ax5 = plt.subplot(3, 2, 5)
     ax5.hist(train_sample['turbidity'], bins=50, alpha=0.7, label='Training', color='green')
     ax5.hist(test_sample[test_sample['label']==1]['turbidity'], bins=30, alpha=0.7, label='Test (Leak)', color='red')
-    ax5.set_title('Turbidity Distribution', fontsize=12, fontweight='bold')
-    ax5.set_xlabel('Turbidity (NTU)')
+    ax5.set_title('Turbidity Distribution (Auxiliary)', fontsize=12, fontweight='bold')
+    ax5.set_xlabel('Turbidity (NTU) - Optional Sensor')
     ax5.set_ylabel('Frequency')
     ax5.legend()
     ax5.grid(True, alpha=0.3, axis='y')
@@ -294,6 +282,43 @@ def visualize_data(train_df, test_df):
     plt.tight_layout()
     plt.savefig('water_flow_timeline.png', dpi=150, bbox_inches='tight')
     print("  Saved: water_flow_timeline.png")
+    
+    # 24-hour patterns for all 12 months (one day per month)
+    fig3 = plt.figure(figsize=(20, 16))
+    
+    # Show one representative day from each month
+    for month_num in range(1, 13):
+        ax = plt.subplot(4, 3, month_num)
+        
+        # Get middle day of each month
+        month_data = train_df[train_df['month'] == month_num]
+        mid_day = len(month_data) // 2
+        day_start = mid_day - (mid_day % SAMPLES_PER_DAY)
+        day_end = day_start + SAMPLES_PER_DAY
+        day_data = month_data.iloc[day_start:day_end]
+        
+        if len(day_data) > 0:
+            # Create time axis in hours (0-24)
+            minutes = range(len(day_data))
+            hours = [m / 60 for m in minutes]
+            
+            ax.plot(hours, day_data['flow_rate'].values, linewidth=0.6, alpha=0.8, color='steelblue')
+            month_name = day_data.iloc[0]['timestamp'].strftime('%B %Y')
+            day_name = day_data.iloc[0]['timestamp'].strftime('%A, %b %d')
+            ax.set_title(f'{month_name}\n{day_name}', fontsize=10, fontweight='bold')
+            ax.set_xlabel('Hour of Day', fontsize=9)
+            ax.set_ylabel('Flow Rate (L/min)', fontsize=9)
+            ax.set_xlim(0, 24)
+            ax.set_xticks(range(0, 25, 3))
+            ax.grid(True, alpha=0.3)
+            
+            # Highlight night hours
+            ax.axvspan(0, 6, alpha=0.1, color='gray')
+    
+    plt.suptitle('24-Hour Water Flow Patterns - All 12 Months', fontsize=16, fontweight='bold', y=0.995)
+    plt.tight_layout()
+    plt.savefig('water_flow_24hour_patterns.png', dpi=150, bbox_inches='tight')
+    print("  Saved: water_flow_24hour_patterns.png")
     
     plt.close('all')
 

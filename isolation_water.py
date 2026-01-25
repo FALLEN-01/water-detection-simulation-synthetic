@@ -10,8 +10,17 @@ print("Loading datasets...")
 train_df = pd.read_csv('water_train.csv')
 test_df = pd.read_csv('water_test.csv')
 
-feature_cols = ['flow_normalized', 'pressure', 'turbidity', 'temperature', 
-                'flow_duration', 'hour', 'is_weekend']
+# Check if turbidity sensor is available (auxiliary sensor)
+has_turbidity = 'turbidity' in train_df.columns
+
+if has_turbidity:
+    feature_cols = ['flow_normalized', 'turbidity', 'temperature', 
+                    'flow_duration', 'hour', 'is_weekend']
+    print("Using turbidity sensor (auxiliary) for enhanced detection")
+else:
+    feature_cols = ['flow_normalized', 'temperature', 
+                    'flow_duration', 'hour', 'is_weekend']
+    print("Turbidity sensor not available - using flow and temperature only")
 
 train_data = train_df[feature_cols].values
 test_data = test_df[feature_cols].values
@@ -60,7 +69,9 @@ print(f"  Recall:    {recall:.3f}")
 print(f"  F1 Score:  {f1:.3f}")
 print(f"  TP: {true_positives:,} | FP: {false_positives:,} | TN: {true_negatives:,} | FN: {false_negatives:,}")
 
-print("\nGenerating visualizations...
+print("\nGenerating visualizations...")
+fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
 # Plot 1: Anomaly Score Distribution
 ax1 = axes[0, 0]
 normal_scores = anomaly_scores[test_labels == 0]
@@ -137,7 +148,7 @@ print("\n" + "="*60)
 print("ISOLATION FOREST ANALYSIS COMPLETE")
 print("="*60)
 
-Saved: isolation_forest_results.png")
+print("Saved: isolation_forest_results.png")
 plt.close()
 
-print("Isolation Forest complete!"
+print("Isolation Forest complete!")

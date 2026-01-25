@@ -12,8 +12,17 @@ print("Loading datasets...")
 train_df = pd.read_csv('water_train.csv')
 test_df = pd.read_csv('water_test.csv')
 
-feature_cols = ['flow_normalized', 'pressure', 'turbidity', 'temperature', 
-                'flow_duration', 'hour', 'is_weekend']
+# Check if turbidity sensor is available (auxiliary sensor)
+has_turbidity = 'turbidity' in train_df.columns
+
+if has_turbidity:
+    feature_cols = ['flow_normalized', 'turbidity', 'temperature', 
+                    'flow_duration', 'hour', 'is_weekend']
+    print("Using turbidity sensor (auxiliary) for enhanced detection")
+else:
+    feature_cols = ['flow_normalized', 'temperature', 
+                    'flow_duration', 'hour', 'is_weekend']
+    print("Turbidity sensor not available - using flow and temperature only")
 
 train_data = train_df[feature_cols].values
 test_data = test_df[feature_cols].values

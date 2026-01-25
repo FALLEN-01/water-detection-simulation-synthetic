@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:2.13.0-jupyter
+FROM tensorflow/tensorflow:2.13.0-gpu
 
 WORKDIR /app
 
