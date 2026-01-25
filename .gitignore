@@ -1,6 +1,4 @@
 # CSV data files
-*.csv
-
-# Jupyter
-*.ipynb_checkpoints
+water_test.csv
+water_train.csv
 
