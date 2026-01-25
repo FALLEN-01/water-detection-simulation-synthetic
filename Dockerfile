@@ -1,10 +1,9 @@
-FROM python:3.11-slim
+FROM tensorflow/tensorflow:2.13.0-jupyter
 
 WORKDIR /app
 
-COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --timeout=1000 -r requirements.txt
+    pip install pandas==2.0.3 scikit-learn==1.3.0 matplotlib==3.7.2
 
 COPY *.py .
 

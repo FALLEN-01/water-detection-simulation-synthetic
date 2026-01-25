@@ -7,10 +7,5 @@ services:
       - TF_CPP_MIN_LOG_LEVEL=3
       - TF_ENABLE_ONEDNN_OPTS=0
     volumes:
-      - ./water_train.csv:/app/water_train.csv
-      - ./water_test.csv:/app/water_test.csv
-      - ./water_flow_analysis.png:/app/water_flow_analysis.png
-      - ./water_flow_timeline.png:/app/water_flow_timeline.png
-      - ./autoencoder_results.png:/app/autoencoder_results.png
-      - ./isolation_forest_results.png:/app/isolation_forest_results.png
+      - .:/app
 
