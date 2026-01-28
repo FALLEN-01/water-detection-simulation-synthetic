@@ -1,0 +1,19 @@
+{
+  "model_name": "ESP32-S3 Water Leak Detector",
+  "version": "1.0",
+  "window_size": 10,
+  "features": [
+    "flow_normalized",
+    "turbidity",
+    "flow_duration",
+    "hour",
+    "is_weekend"
+  ],
+  "n_features": 5,
+  "threshold": 346882878.9003636,
+  "parameters": 4437,
+  "accuracy": 0.9140710904313807,
+  "precision": 0.07647963105303612,
+  "recall": 0.009916284632250348,
+  "f1_score": 0.017556241729157478
+}
