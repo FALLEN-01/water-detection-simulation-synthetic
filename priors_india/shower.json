@@ -1,0 +1,87 @@
+{
+  "appliance": "shower",
+  "version": "1.1-india",
+  "dataset_span": {
+    "start_ts": 1550048311,
+    "end_ts": 1603297596,
+    "span_seconds": 53249285.0,
+    "span_days": 616.3111689814815,
+    "span_days_ceil": 617
+  },
+  "activation": {
+    "events_per_day": {
+      "type": "poisson",
+      "lambda": 0.8816855753646677
+    }
+  },
+  "timing": {
+    "start_hour": {
+      "type": "categorical",
+      "p": [
+        0.03125,
+        0.009191176470588236,
+        0.014705882352941176,
+        0.029411764705882353,
+        0.011029411764705883,
+        0.07169117647058823,
+        0.10110294117647059,
+        0.04963235294117647,
+        0.06433823529411764,
+        0.051470588235294115,
+        0.02022058823529412,
+        0.03860294117647059,
+        0.03308823529411765,
+        0.03125,
+        0.034926470588235295,
+        0.04595588235294118,
+        0.058823529411764705,
+        0.05514705882352941,
+        0.04411764705882353,
+        0.04779411764705882,
+        0.042279411764705885,
+        0.04044117647058824,
+        0.042279411764705885,
+        0.03125
+      ]
+    }
+  },
+  "duration": {
+    "type": "lognormal",
+    "shape": 2.547797810466094,
+    "scale": 7.342940573236953,
+    "unit": "seconds"
+  },
+  "flow": {
+    "mean_flow": {
+      "type": "lognormal",
+      "shape": 1.6167587382714508,
+      "scale": 18.19015840112026,
+      "unit": "ml/s"
+    },
+    "peak_flow": {
+      "type": "lognormal",
+      "shape": 1.7155764057367626,
+      "scale": 29.401710568721438,
+      "unit": "ml/s"
+    }
+  },
+  "shape": {
+    "type": "trapezoid",
+    "ramp_up_s": 5,
+    "ramp_down_s": 5
+  },
+  "constraints": {
+    "volume_relation": "volume = mean_flow * duration",
+    "min_duration_s": 1.0,
+    "max_duration_s": 1118.0
+  },
+  "calibration": {
+    "region": "India",
+    "method": "deterministic scaling",
+    "flow_scale_factors": {
+      "mean": 2.0,
+      "peak": 2.5
+    },
+    "notes": "Flow rates scaled to reflect Indian domestic fixtures (MoHUA / BIS guidance, manufacturer specs). Timing, duration, and activation priors unchanged."
+  }
+}

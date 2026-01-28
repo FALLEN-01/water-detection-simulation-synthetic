@@ -1,0 +1,85 @@
+{
+  "appliance": "washbasin",
+  "version": "1.1-india",
+  "dataset_span": {
+    "start_ts": 1550048311,
+    "end_ts": 1603297596,
+    "span_seconds": 53249285.0,
+    "span_days": 616.3111689814815,
+    "span_days_ceil": 617
+  },
+  "activation": {
+    "events_per_day": {
+      "type": "poisson",
+      "lambda": 13.993517017828202
+    }
+  },
+  "timing": {
+    "start_hour": {
+      "type": "categorical",
+      "p": [
+        0.014014361825341673,
+        0.007296733842946491,
+        0.010076441973592773,
+        0.00590687977762335,
+        0.004169562195969423,
+        0.04794996525364837,
+        0.14164929349085012,
+        0.08188556868195507,
+        0.0684503127171647,
+        0.04841324994208941,
+        0.042738012508686585,
+        0.02837618716701413,
+        0.03266157053509382,
+        0.03231410701876303,
+        0.03856845031271716,
+        0.06613388927495946,
+        0.055130877924484595,
+        0.04424368774611999,
+        0.04366458188556868,
+        0.0472550382209868,
+        0.04586518415566365,
+        0.0339356034283067,
+        0.036599490386842716,
+        0.022700949733611305
+      ]
+    }
+  },
+  "duration": {
+    "type": "lognormal",
+    "shape": 1.0933153531551625,
+    "scale": 4.035643751977873,
+    "unit": "seconds"
+  },
+  "flow": {
+    "mean_flow": {
+      "type": "lognormal",
+      "shape": 1.2216258914813973,
+      "scale": 37.10726397079749,
+      "unit": "ml/s"
+    },
+    "peak_flow": {
+      "type": "lognormal",
+      "shape": 1.2712156619783785,
+      "scale": 58.81063800993969,
+      "unit": "ml/s"
+    }
+  },
+  "shape": {
+    "type": "step"
+  },
+  "constraints": {
+    "volume_relation": "volume = mean_flow * duration",
+    "min_duration_s": 1.0,
+    "max_duration_s": 18.0
+  },
+  "calibration": {
+    "region": "India",
+    "method": "deterministic scaling",
+    "flow_scale_factors": {
+      "mean": 2.5,
+      "peak": 3.5
+    },
+    "notes": "Flow rates scaled to reflect Indian domestic fixtures (MoHUA / BIS guidance, manufacturer specs). Timing, duration, and activation priors unchanged."
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "appliance": "toilet",
+  "version": "1.1-india",
+  "dataset_span": {
+    "start_ts": 1550048311,
+    "end_ts": 1603297596,
+    "span_seconds": 53249285.0,
+    "span_days": 616.3111689814815,
+    "span_days_ceil": 617
+  },
+  "activation": {
+    "events_per_day": {
+      "type": "poisson",
+      "lambda": 1.9254457050243112
+    }
+  },
+  "timing": {
+    "start_hour": {
+      "type": "categorical",
+      "p": [
+        0.009259259259259259,
+        0.005892255892255892,
+        0.009259259259259259,
+        0.005050505050505051,
+        0.005050505050505051,
+        0.045454545454545456,
+        0.12205387205387205,
+        0.1111111111111111,
+        0.0664983164983165,
+        0.04713804713804714,
+        0.04377104377104377,
+        0.04377104377104377,
+        0.03282828282828283,
+        0.04377104377104377,
+        0.03872053872053872,
+        0.041245791245791245,
+        0.04377104377104377,
+        0.04713804713804714,
+        0.047979797979797977,
+        0.03872053872053872,
+        0.041245791245791245,
+        0.04461279461279461,
+        0.03872053872053872,
+        0.026936026936026935
+      ]
+    }
+  },
+  "duration": {
+    "type": "fixed",
+    "value": 360.0,
+    "unit": "seconds"
+  },
+  "flow": {
+    "mean_flow": {
+      "type": "lognormal",
+      "shape": 2.2204975607652384e-16,
+      "scale": 11.999999999999996,
+      "unit": "ml/s"
+    },
+    "peak_flow": {
+      "type": "lognormal",
+      "shape": 2.2204975607652384e-16,
+      "scale": 11.999999999999996,
+      "unit": "ml/s"
+    }
+  },
+  "shape": {
+    "type": "step"
+  },
+  "constraints": {
+    "volume_relation": "volume = mean_flow * duration",
+    "min_duration_s": 360.0,
+    "max_duration_s": 360.0
+  },
+  "calibration": {
+    "region": "India",
+    "method": "deterministic scaling",
+    "flow_scale_factors": {
+      "mean": 1.0,
+      "peak": 1.0
+    },
+    "notes": "Flow rates scaled to reflect Indian domestic fixtures (MoHUA / BIS guidance, manufacturer specs). Timing, duration, and activation priors unchanged."
+  }
+}

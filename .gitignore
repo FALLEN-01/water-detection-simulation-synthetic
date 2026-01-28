@@ -1,4 +1,6 @@
 # CSV data files
 *.csv
 
+#zip files
+*.zip
 
