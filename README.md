@@ -69,18 +69,109 @@ All water usage patterns are calibrated for **Indian domestic fixtures** based o
 ### Detection Models
 
 #### 1. Autoencoder ([autoencoder_water.py](autoencoder_water.py))
-Deep learning approach using TensorFlow/Keras:
-- **Architecture**: 16→8→4→8→16 neurons with dropout layers
-- **Training**: Learns to reconstruct normal flow patterns
-- **Detection**: Flags samples where reconstruction error exceeds 99th percentile
-- **Threshold**: Adaptive based on training data distribution
+
+**Architecture: LSTM Encoder-Decoder with Windowed Input**
+
+```
+Input: (10 timesteps, 5 features) - 10-minute sliding window
+│
+├─ Encoder
+│  ├─ LSTM(32 units, return_sequences=True) → (10, 32)
+│  ├─ Dropout(0.2)
+│  ├─ LSTM(16 units, return_sequences=False) → (16,)
+│  └─ Dropout(0.2)
+│
+├─ Latent Space: 16-dimensional compressed representation
+│
+└─ Decoder
+   ├─ RepeatVector(10) → (10, 16)
+   ├─ LSTM(16 units, return_sequences=True) → (10, 16)
+   ├─ Dropout(0.2)
+   ├─ LSTM(32 units, return_sequences=True) → (10, 32)
+   └─ TimeDistributed(Dense(5)) → (10, 5)
+
+Output: Reconstructed 10-minute window
+
+Total Parameters: ~20,000
+```
+
+**Training Configuration:**
+- **Loss Function**: Mean Squared Error (MSE)
+- **Optimizer**: Adam (learning_rate=0.001)
+- **Batch Size**: 128 windows
+- **Epochs**: 50 (with early stopping, patience=5)
+- **Validation Split**: 10% of training data
+- **Threshold**: 99th percentile of training reconstruction errors
+
+**How It Works:**
+1. **Learning Phase**: Trained only on normal flow patterns (no leaks)
+2. **Compression**: LSTM encoder compresses 10-minute sequence into 16 values
+3. **Reconstruction**: LSTM decoder attempts to recreate original sequence
+4. **Anomaly Detection**: High reconstruction error indicates unusual pattern (leak)
+
+**Why Windows?**
+- Captures temporal context (not just single-minute spikes)
+- Distinguishes sustained leaks from brief normal usage (showers)
+- 10-minute window: balance between context and responsiveness
+
+**Features Used:**
+- Flow rate (normalized), Turbidity (optional), Flow duration, Hour of day, Weekend flag
 
 #### 2. Isolation Forest ([isolation_water.py](isolation_water.py))
-Ensemble method using scikit-learn:
-- **Algorithm**: Isolates anomalies by partitioning feature space
-- **Configuration**: 200 estimators with contamination tuning
-- **Detection**: Identifies samples that are easily isolated (anomalous)
-- **Score**: Lower anomaly scores indicate higher likelihood of leaks
+
+**Architecture: Ensemble Tree-Based Anomaly Detection**
+
+```
+Algorithm: Isolation Forest (scikit-learn)
+│
+├─ Forest Configuration
+│  ├─ n_estimators: 200 trees
+│  ├─ contamination: Auto-calibrated (expected leak frequency × 1.5)
+│  ├─ max_samples: 'auto' (256 or dataset size)
+│  └─ random_state: 42 (reproducibility)
+│
+└─ Detection Strategy
+   ├─ Random Feature Selection
+   ├─ Random Split Points
+   └─ Path Length Measurement
+      └─ Shorter paths = Anomalies (easier to isolate)
+```
+
+**Training Configuration:**
+- **Input**: Single-timestep features (not windowed)
+- **n_jobs**: -1 (use all CPU cores)
+- **Prediction**: -1 = anomaly, +1 = normal
+- **Scoring**: Lower anomaly scores indicate higher suspicion
+
+**How It Works:**
+1. **Isolation Principle**: Anomalies are rare and different, thus easier to isolate
+2. **Random Partitioning**: Each tree randomly splits feature space
+3. **Path Length**: Measures how many splits needed to isolate a sample
+4. **Ensemble Voting**: 200 trees vote on anomaly likelihood
+
+**Advantages:**
+- ✓ Fast training and prediction
+- ✓ Works well with high-dimensional data
+- ✓ No assumption about data distribution
+- ✓ Memory efficient
+
+**Disadvantages:**
+- ✗ No temporal context (single-point analysis)
+- ✗ May miss gradual anomalies
+- ✗ Requires contamination parameter tuning
+
+### Model Comparison
+
+| Aspect | LSTM Autoencoder | Isolation Forest |
+|--------|------------------|------------------|
+| **Input Type** | 10-minute windows | Single timesteps |
+| **Temporal Context** | ✓ Yes (LSTM) | ✗ No |
+| **Training Time** | ~5-10 minutes | ~30 seconds |
+| **Memory Usage** | Higher | Lower |
+| **Detection Type** | Pattern deviation | Statistical outlier |
+| **Best For** | Sustained leaks | Point anomalies |
+| **Parameters** | ~20,000 | None (tree-based) |
+| **Interpretability** | Low (deep learning) | Medium (feature importance) |
 
 ### Orchestration ([main.py](main.py))
 Executes the complete pipeline:
@@ -142,6 +233,105 @@ Both models report:
 - **F1 Score**: Harmonic mean of precision and recall
 - **Confusion Matrix**: TP/FP/TN/FN breakdown
 
+## Model Architecture Details
+
+### LSTM Autoencoder Layer Specifications
+
+**Complete Architecture Diagram:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    LSTM AUTOENCODER                          │
+├─────────────────────────────────────────────────────────────┤
+│ INPUT                                                         │
+│  └─ Shape: (batch, 10, 5)                                   │
+│     10 timesteps × 5 features                                │
+│                                                               │
+│ ENCODER                                                       │
+│  ├─ LSTM(32 units, return_sequences=True)                   │
+│  │   └─ Output: (batch, 10, 32)   [4,864 params]           │
+│  ├─ Dropout(0.2)                                            │
+│  ├─ LSTM(16 units, return_sequences=False)                  │
+│  │   └─ Output: (batch, 16)       [3,136 params]           │
+│  └─ Dropout(0.2)                                            │
+│                                                               │
+│ LATENT SPACE                                                  │
+│  └─ 16-dimensional compressed representation                 │
+│     [Captures essential flow patterns]                       │
+│                                                               │
+│ DECODER                                                       │
+│  ├─ RepeatVector(10)                                         │
+│  │   └─ Output: (batch, 10, 16)   [0 params]               │
+│  ├─ LSTM(16 units, return_sequences=True)                   │
+│  │   └─ Output: (batch, 10, 16)   [2,112 params]           │
+│  ├─ Dropout(0.2)                                            │
+│  ├─ LSTM(32 units, return_sequences=True)                   │
+│  │   └─ Output: (batch, 10, 32)   [6,272 params]           │
+│  └─ TimeDistributed(Dense(5))                               │
+│      └─ Output: (batch, 10, 5)    [165 params]             │
+│                                                               │
+│ RECONSTRUCTED OUTPUT                                          │
+│  └─ Shape: (batch, 10, 5)                                   │
+│     Same as input                                            │
+└─────────────────────────────────────────────────────────────┘
+
+Total Parameters: 16,549 (trainable)
+Model Size: ~65 KB
+```
+
+**Parameter Calculation:**
+- LSTM_1: 4 × (32 × (5 + 32 + 1)) = 4,864
+- LSTM_2: 4 × (16 × (32 + 16 + 1)) = 3,136
+- LSTM_3: 4 × (16 × (16 + 16 + 1)) = 2,112
+- LSTM_4: 4 × (32 × (16 + 32 + 1)) = 6,272
+- Dense: (32 + 1) × 5 = 165
+
+**Training Strategy:**
+```
+Loss Function: Mean Squared Error (MSE)
+├─ Measures reconstruction quality
+├─ Lower MSE = Better reconstruction
+└─ Anomalies have high MSE (can't reconstruct unusual patterns)
+
+Optimizer: Adam (lr=0.001)
+├─ Adaptive learning rate
+├─ Momentum-based optimization
+└─ Efficient for LSTM networks
+
+Early Stopping: patience=5
+├─ Monitors training loss
+├─ Stops if no improvement for 5 epochs
+└─ Restores best weights
+
+Regularization:
+├─ Dropout: 0.2 (prevents overfitting)
+├─ Validation split: 10% (monitors generalization)
+└─ Window shuffling (randomizes temporal order)
+```
+
+### Feature Importance & Selection
+
+**Input Features (per timestep):**
+
+1. **flow_normalized** (0-1): Primary anomaly indicator
+2. **turbidity** (NTU): Auxiliary sensor (optional, increases sediment during leaks)
+3. **flow_duration** (seconds): Cumulative daily flow time
+4. **hour** (0-23): Time-of-day context (peak hours)
+5. **is_weekend** (0-1): Weekend usage patterns
+
+**Why These Features?**
+- Combination of **direct measurements** (flow, turbidity) and **contextual** (time, duration)
+- Normalized to prevent feature dominance
+- Captures both magnitude and temporal patterns
+
+### Detection Philosophy
+
+Both models use **unsupervised anomaly detection**:
+- ✓ Trained only on **normal data** (no leak examples needed)
+- ✓ Simulates real-world deployment (leak patterns unknown/evolving)
+- ✓ Threshold auto-calibrated from normal behavior
+- ✓ Generalizes to novel leak types
+
 ## Project Structure
 
 ```
@@ -178,22 +368,61 @@ Both models report:
 - **Leak injection**: Pattern-based placement with varying duration and severity
 
 ### Model Training
-- **Autoencoder**: 50 epochs with early stopping (patience=5), validation split=10%
-- **Isolation Forest**: Auto-calibrated contamination rate based on expected leak frequency
-- **Feature normalization**: Flow rate normalized to 0-1 range
 
-### Detection Philosophy
-Both models use **unsupervised learning** - trained only on normal data without seeing leak examples. This simulates real-world deployment where leak patterns may be unknown or evolve over time.
+**Autoencoder Training Process:**
 
-## Future Enhancements
+```python
+# 1. Data Preparation (10-min sliding windows)
+Training windows: 259,141 (from 259,200 samples)
+Window shape: (259141, 10, 5)  # samples × timesteps × features
 
-- [ ] Real-time streaming data processing
-- [ ] Integration with IoT sensor hardware
-- [ ] Alert notification system (SMS/email)
-- [ ] Mobile app for maintenance staff
-- [ ] Historical trend analysis dashboard
-- [ ] Multi-building deployment support
-- [ ] Automated valve shutoff integration
+# 2. Model Architecture
+Encoder: (10,5) → LSTM(32) → LSTM(16) → [Compressed: 16]
+Decoder: [16] → Repeat(10) → LSTM(16) → LSTM(32) → (10,5)
+
+# 3. Training Configuration
+- Learns to reconstruct NORMAL patterns only
+- Early stopping monitors training loss
+- Validation split ensures no overfitting
+- Dropout layers (0.2) prevent memorization
+
+# 4. Threshold Calibration
+- Calculate reconstruction error on training set
+- Set threshold = 99th percentile
+- Samples exceeding threshold = anomalies
+
+# 5. Evaluation
+- Test on 6 months with 8 injected leak events
+- Metrics: Accuracy, Precision, Recall, F1 Score
+```
+
+**Isolation Forest Training Process:**
+
+```python
+# 1. Data Preparation (single samples)
+Training samples: 259,200
+Features: 5-6 (depending on turbidity availability)
+
+# 2. Forest Construction
+- Build 200 isolation trees
+- Each tree: random feature splits
+- Path length tracked for each sample
+
+# 3. Contamination Estimation
+- Expected leaks / total samples
+- Multiply by 1.5 safety factor
+- Cap at 0.1 (10% max contamination)
+
+# 4. Scoring
+- Aggregate path lengths across trees
+- Normalize to anomaly score [-1, 1]
+- Score < 0 typically indicates anomaly
+
+# 5. Prediction
+- Apply threshold at decision boundary
+- -1 = anomaly, +1 = normal
+```
+
 
 ## License
 
