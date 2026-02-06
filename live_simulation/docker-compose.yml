@@ -1,0 +1,18 @@
+
+services:
+  live-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: water-detection-live-dashboard
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - TF_ENABLE_ONEDNN_OPTS=0
+    volumes:
+      - .:/app
+      - ../priors_india:/app/priors_india
+    restart: unless-stopped
+

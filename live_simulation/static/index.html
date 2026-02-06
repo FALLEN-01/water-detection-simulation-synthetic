@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Leak Detection - Live Dashboard</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Connection Status -->
+    <div id="connectionStatus" class="connection-status disconnected">
+        <span class="status-dot"></span>
+        <span class="status-text">Disconnected</span>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="title">
+                    <span class="icon">💧</span>
+                    Water Leak Detection System
+                </h1>
+                <p class="subtitle">Real-Time Monitoring Dashboard</p>
+            </div>
+        </header>
+
+        <!-- Alert Banner -->
+        <div id="alertBanner" class="alert-banner hidden">
+            <div class="alert-content">
+                <span class="alert-icon">⚠️</span>
+                <div class="alert-text">
+                    <strong>LEAK DETECTED!</strong>
+                    <span id="alertDetails"></span>
+                </div>
+                <button class="alert-close" onclick="closeAlert()">×</button>
+            </div>
+        </div>
+
+        <!-- Control Panel -->
+        <section class="control-panel">
+            <div class="controls">
+                <button id="startBtn" class="btn btn-primary" onclick="startSimulation()">
+                    <span class="btn-icon">▶</span> Start Simulation
+                </button>
+                <button id="pauseBtn" class="btn btn-secondary" onclick="pauseSimulation()" disabled>
+                    <span class="btn-icon">⏸</span> Pause
+                </button>
+                <button id="stopBtn" class="btn btn-danger" onclick="stopSimulation()" disabled>
+                    <span class="btn-icon">⏹</span> Stop
+                </button>
+            </div>
+            <div class="simulation-info">
+                <span id="simulationStatus" class="status-badge status-idle">IDLE</span>
+                <span id="simulationTime" class="time-display">00:00:00</span>
+            </div>
+        </section>
+
+        <!-- Live Metrics -->
+        <section class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-icon">🌊</span>
+                    <span class="metric-label">Flow Rate</span>
+                </div>
+                <div class="metric-value" id="flowRateValue">0.00</div>
+                <div class="metric-unit">L/min</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-icon">💨</span>
+                    <span class="metric-label">Turbidity</span>
+                </div>
+                <div class="metric-value" id="turbidityValue">0.00</div>
+                <div class="metric-unit">NTU</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-icon">🤖</span>
+                    <span class="metric-label">Autoencoder</span>
+                </div>
+                <div class="metric-value prediction-value" id="autoencoderPrediction">-</div>
+                <div class="metric-unit" id="autoencoderError">Error: -</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-icon">🌲</span>
+                    <span class="metric-label">Isolation Forest</span>
+                </div>
+                <div class="metric-value prediction-value" id="isolationPrediction">-</div>
+                <div class="metric-unit" id="isolationScore">Score: -</div>
+            </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="charts-grid">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Flow Rate (Real-Time)</h3>
+                    <span class="chart-info">Last 60 seconds</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="flowRateChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Turbidity (Real-Time)</h3>
+                    <span class="chart-info">Last 60 seconds</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="turbidityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card full-width">
+                <div class="chart-header">
+                    <h3 class="chart-title">Anomaly Detection Timeline</h3>
+                    <span class="chart-info">
+                        <span class="legend-item">
+                            <span class="legend-dot normal"></span> Normal
+                        </span>
+                        <span class="legend-item">
+                            <span class="legend-dot anomaly"></span> Leak Detected
+                        </span>
+                    </span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="anomalyChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Water Leak Detection System © 2026 | Powered by AI & Real-Time Analytics</p>
+        </footer>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

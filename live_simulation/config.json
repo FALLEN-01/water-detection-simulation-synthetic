@@ -1,0 +1,23 @@
+{
+  "sampling_rate_hz": 1,
+  "window_size": 10,
+  "websocket_port": 5000,
+  "chart_update_interval_ms": 1000,
+  "leak_injection_probability": 0.02,
+  "max_flow_rate": 15.0,
+  "models": {
+    "autoencoder_path": "../autoencoder_model.h5",
+    "isolation_forest_path": "../isolation_forest_model.pkl",
+    "scaler_path": "../scaler.pkl"
+  },
+  "priors_directory": "../priors_india",
+  "building_config": {
+    "num_apartments": 50,
+    "avg_household_size": 3,
+    "base_occupancy": 0.85
+  },
+  "display": {
+    "graph_window_seconds": 60,
+    "alert_duration_ms": 5000
+  }
+}

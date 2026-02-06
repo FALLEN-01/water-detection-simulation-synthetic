@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug - Water Leak Detection</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+        }
+
+        .log {
+            background: #000;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+        }
+
+        button {
+            background: #00ff00;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+
+        button:hover {
+            background: #00cc00;
+        }
+
+        .data {
+            color: #00d4ff;
+        }
+
+        .error {
+            color: #ff0000;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔧 WebSocket Debug Console</h1>
+
+    <div>
+        <button onclick="startSim()">▶ Start Simulation</button>
+        <button onclick="stopSim()">⏹ Stop Simulation</button>
+        <button onclick="clearLogs()">🗑️ Clear Logs</button>
+    </div>
+
+    <h2>Connection Status: <span id="status">Disconnected</span></h2>
+
+    <h2>Live Data:</h2>
+    <div id="liveData" class="log">Waiting for data...</div>
+
+    <h2>Event Log:</h2>
+    <div id="logs"></div>
+
+    <script>
+        let socket = null;
+        let dataCount = 0;
+
+        function log(message, isError = false) {
+            const logsDiv = document.getElementById('logs');
+            const logEntry = document.createElement('div');
+            logEntry.className = isError ? 'log error' : 'log';
+            const timestamp = new Date().toLocaleTimeString();
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logsDiv.insertBefore(logEntry, logsDiv.firstChild);
+            console.log(message);
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            dataCount = 0;
+        }
+
+        // Initialize WebSocket
+        log('🔌 Initializing WebSocket connection...');
+        socket = io.connect(window.location.origin);
+
+        socket.on('connect', () => {
+            log('✅ WebSocket CONNECTED');
+            document.getElementById('status').textContent = 'Connected ✓';
+            document.getElementById('status').style.color = '#00ff00';
+        });
+
+        socket.on('disconnect', () => {
+            log('❌ WebSocket DISCONNECTED', true);
+            document.getElementById('status').textContent = 'Disconnected ✗';
+            document.getElementById('status').style.color = '#ff0000';
+        });
+
+        socket.on('connection_response', (data) => {
+            log('📨 Connection response received');
+            log(`Config: ${JSON.stringify(data.config)}`);
+        });
+
+        socket.on('sensor_data', (data) => {
+            dataCount++;
+            const liveDataDiv = document.getElementById('liveData');
+            liveDataDiv.innerHTML = `
+                <div class="data">
+                    <strong>Data Packet #${dataCount}</strong><br>
+                    Timestamp: ${data.timestamp}<br>
+                    Flow Rate: ${data.sensor_data.flow_rate} L/min<br>
+                    Turbidity: ${data.sensor_data.turbidity} NTU<br>
+                    Ensemble Prediction: ${data.predictions.ensemble === 1 ? '🚨 LEAK' : '✅ NORMAL'}<br>
+                    Leak Active: ${data.leak_active ? 'YES' : 'NO'}
+                </div>
+            `;
+
+            if (dataCount % 5 === 0) {
+                log(`📊 Received ${dataCount} data packets`);
+            }
+        });
+
+        socket.on('leak_alert', (data) => {
+            log(`🚨 LEAK ALERT! Flow: ${data.flow_rate} L/min, Confidence: ${data.confidence}`, true);
+        });
+
+        socket.on('simulation_status', (data) => {
+            log(`🎮 Simulation status: ${data.status.toUpperCase()}`);
+        });
+
+        function startSim() {
+            log('▶ Sending start_simulation command...');
+            socket.emit('start_simulation');
+        }
+
+        function stopSim() {
+            log('⏹ Sending stop_simulation command...');
+            socket.emit('stop_simulation');
+        }
+
+        log('✨ Debug console ready. Click "Start Simulation" to begin.');
+    </script>
+</body>
+
+</html>
