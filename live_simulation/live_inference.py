@@ -88,11 +88,12 @@ class LiveInferenceEngine:
     
     def _prepare_features(self, sample: Dict) -> np.ndarray:
         """Prepare features from raw sample data"""
-        # Features: flow_normalized, turbidity, hour, is_weekend
-        # Note: We don't use flow_duration in live mode (not meaningful)
+        # Features: flow_normalized, turbidity, flow_duration, hour, is_weekend
+        # Must match the training data feature order
         features = np.array([
             sample['flow_normalized'],
             sample['turbidity'],
+            sample['flow_duration'],
             sample['hour'],
             sample['is_weekend']
         ])

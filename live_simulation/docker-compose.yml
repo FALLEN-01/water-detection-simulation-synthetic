@@ -14,5 +14,7 @@ services:
     volumes:
       - .:/app
       - ../priors_india:/app/priors_india
+      - ../esp32_s3_model:/app/esp32_s3_model
+      - ..:/app/parent
     restart: unless-stopped
 

@@ -6,9 +6,9 @@
   "leak_injection_probability": 0.02,
   "max_flow_rate": 15.0,
   "models": {
-    "autoencoder_path": "../autoencoder_model.h5",
-    "isolation_forest_path": "../isolation_forest_model.pkl",
-    "scaler_path": "../scaler.pkl"
+    "autoencoder_path": "esp32_s3_model/autoencoder_lstm.h5",
+    "isolation_forest_path": "esp32_s3_model/isolation_forest_model.pkl",
+    "scaler_path": "esp32_s3_model/scaler.pkl"
   },
   "priors_directory": "../priors_india",
   "building_config": {

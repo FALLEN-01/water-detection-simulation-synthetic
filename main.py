@@ -8,7 +8,7 @@ print("\nStep 1: Generating datasets...")
 import emulate_data
 
 print("\nStep 2: Training autoencoder...")
-import autoencoder_water
+#import autoencoder_water
 
 print("\nStep 3: Training isolation forest...")
 import isolation_water
