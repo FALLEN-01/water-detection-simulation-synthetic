@@ -12,7 +12,7 @@ let charts = {};
 let simulationStartTime = null;
 let timerInterval = null;
 
-const DATA_BUFFER_SIZE = 60; // Keep last 60 seconds
+const DATA_BUFFER_SIZE = 600; // Keep last 10 minutes (600 seconds)
 const dataBuffers = {
     flowRate: [],
     turbidity: [],
@@ -83,23 +83,54 @@ function updateConnectionStatus(connected) {
 // ===========================
 
 function initializeCharts() {
+    // Plugin to display current value on chart
+    const valueDisplayPlugin = {
+        id: 'valueDisplay',
+        afterDatasetsDraw(chart) {
+            const { ctx, chartArea: { top, right }, scales: { x, y } } = chart;
+            const dataset = chart.data.datasets[0];
+            const data = dataset.data;
+
+            if (data.length > 0) {
+                const lastPoint = data[data.length - 1];
+                const value = lastPoint.y;
+                const label = dataset.label;
+
+                // Determine unit based on label
+                let unit = '';
+                if (label === 'Flow Rate') {
+                    unit = ' L/min';
+                } else if (label === 'Turbidity') {
+                    unit = ' NTU';
+                }
+
+                ctx.save();
+                ctx.font = 'bold 20px Inter';
+                ctx.fillStyle = dataset.borderColor;
+                ctx.textAlign = 'right';
+                ctx.fillText(`${value.toFixed(2)}${unit}`, right - 10, top + 25);
+                ctx.restore();
+            }
+        }
+    };
+
     const commonOptions = {
         responsive: true,
         maintainAspectRatio: false,
-        animation: {
-            duration: 300
-        },
+        animation: false,  // Disable animation for smoother scrolling
         plugins: {
             legend: {
                 display: false
-            }
+            },
+            valueDisplay: true
         },
         scales: {
             x: {
                 type: 'time',
                 time: {
-                    unit: 'second',
+                    unit: 'minute',
                     displayFormats: {
+                        minute: 'HH:mm',
                         second: 'HH:mm:ss'
                     }
                 },
@@ -107,7 +138,10 @@ function initializeCharts() {
                     color: 'rgba(148, 163, 184, 0.1)'
                 },
                 ticks: {
-                    color: '#94a3b8'
+                    color: '#94a3b8',
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 10
                 }
             },
             y: {
@@ -152,7 +186,8 @@ function initializeCharts() {
                     }
                 }
             }
-        }
+        },
+        plugins: [valueDisplayPlugin]
     });
 
     // Turbidity Chart
@@ -186,7 +221,8 @@ function initializeCharts() {
                     }
                 }
             }
-        }
+        },
+        plugins: [valueDisplayPlugin]
     });
 
     // Anomaly Detection Chart
@@ -198,15 +234,15 @@ function initializeCharts() {
                 {
                     label: 'Normal',
                     data: [],
-                    backgroundColor: '#00d4ff',
+                    backgroundColor: 'rgba(0, 212, 255, 0.6)',
                     borderColor: '#00d4ff',
                     pointRadius: 3,
                     pointHoverRadius: 5
                 },
                 {
-                    label: 'Leak Detected',
+                    label: 'Anomaly',
                     data: [],
-                    backgroundColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.8)',
                     borderColor: '#ef4444',
                     pointRadius: 5,
                     pointHoverRadius: 7
@@ -215,14 +251,6 @@ function initializeCharts() {
         },
         options: {
             ...commonOptions,
-            plugins: {
-                legend: {
-                    display: true,
-                    labels: {
-                        color: '#94a3b8'
-                    }
-                }
-            },
             scales: {
                 ...commonOptions.scales,
                 y: {
@@ -301,60 +329,81 @@ function addToBuffer(buffer, dataPoint, type = null) {
     }
 }
 
-function updateMetrics(sensorData, predictions) {
-    // Flow Rate
-    document.getElementById('flowRateValue').textContent = sensorData.flow_rate.toFixed(2);
+function updateCharts() {
+    // Get the latest timestamp from data
+    let maxTime = null;
+    let minTime = null;
 
-    // Turbidity
-    document.getElementById('turbidityValue').textContent = sensorData.turbidity.toFixed(2);
+    if (dataBuffers.flowRate.length > 0) {
+        const timestamps = dataBuffers.flowRate.map(d => d.x.getTime());
+        maxTime = new Date(Math.max(...timestamps));
+        minTime = new Date(maxTime.getTime() - (10 * 60 * 1000)); // 10 minutes window
+    }
+
+    // Update Flow Rate Chart
+    charts.flowRate.data.datasets[0].data = dataBuffers.flowRate;
+    if (minTime && maxTime) {
+        charts.flowRate.options.scales.x.min = minTime.getTime();
+        charts.flowRate.options.scales.x.max = maxTime.getTime();
+    }
+    charts.flowRate.update('none');
+
+    // Update Turbidity Chart
+    charts.turbidity.data.datasets[0].data = dataBuffers.turbidity;
+    if (minTime && maxTime) {
+        charts.turbidity.options.scales.x.min = minTime.getTime();
+        charts.turbidity.options.scales.x.max = maxTime.getTime();
+    }
+    charts.turbidity.update('none');
+
+    // Update Anomaly Chart
+    const normalPoints = dataBuffers.anomaly.normal || [];
+    const anomalyPoints = dataBuffers.anomaly.anomaly || [];
+
+    charts.anomaly.data.datasets[0].data = normalPoints;
+    charts.anomaly.data.datasets[1].data = anomalyPoints;
+    if (minTime && maxTime) {
+        charts.anomaly.options.scales.x.min = minTime.getTime();
+        charts.anomaly.options.scales.x.max = maxTime.getTime();
+    }
+    charts.anomaly.update('none');
+}
+
+function updateMetrics(sensorData, predictions) {
+    // These elements may not exist anymore since we removed the sidebar
+    const flowElement = document.getElementById('flowRateValue');
+    const turbidityElement = document.getElementById('turbidityValue');
+
+    if (flowElement) flowElement.textContent = sensorData.flow_rate.toFixed(2);
+    if (turbidityElement) turbidityElement.textContent = sensorData.turbidity.toFixed(2);
 
     // Autoencoder
-    if (predictions.autoencoder) {
-        const autoPred = predictions.autoencoder.prediction === 1 ? 'LEAK' : 'NORMAL';
-        const autoElement = document.getElementById('autoencoderPrediction');
-        autoElement.textContent = autoPred;
-        autoElement.style.color = autoPred === 'LEAK' ? '#ef4444' : '#10b981';
+    const autoElement = document.getElementById('autoencoderPrediction');
 
-        const errorText = `Error: ${predictions.autoencoder.reconstruction_error.toFixed(6)}`;
-        document.getElementById('autoencoderError').textContent = errorText;
+    if (autoElement) {
+        if (predictions.autoencoder) {
+            const autoPred = predictions.autoencoder.prediction === 1 ? 'LEAK' : 'NORMAL';
+            autoElement.textContent = autoPred;
+            autoElement.style.color = autoPred === 'LEAK' ? '#ef4444' : '#10b981';
+        } else {
+            autoElement.textContent = '-';
+            autoElement.style.color = '#64748b';
+        }
     }
 
     // Isolation Forest
-    if (predictions.isolation_forest) {
-        const isoPred = predictions.isolation_forest.prediction === 1 ? 'LEAK' : 'NORMAL';
-        const isoElement = document.getElementById('isolationPrediction');
-        isoElement.textContent = isoPred;
-        isoElement.style.color = isoPred === 'LEAK' ? '#ef4444' : '#10b981';
+    const isoElement = document.getElementById('isolationPrediction');
 
-        const scoreText = `Score: ${predictions.isolation_forest.anomaly_score.toFixed(4)}`;
-        document.getElementById('isolationScore').textContent = scoreText;
+    if (isoElement) {
+        if (predictions.isolation_forest) {
+            const isoPred = predictions.isolation_forest.prediction === 1 ? 'LEAK' : 'NORMAL';
+            isoElement.textContent = isoPred;
+            isoElement.style.color = isoPred === 'LEAK' ? '#ef4444' : '#10b981';
+        } else {
+            isoElement.textContent = '-';
+            isoElement.style.color = '#64748b';
+        }
     }
-
-    // Update status badge if leak detected
-    if (predictions.ensemble === 1) {
-        const statusBadge = document.getElementById('simulationStatus');
-        statusBadge.textContent = 'LEAK DETECTED';
-        statusBadge.className = 'status-badge status-leak';
-    }
-}
-
-function updateCharts() {
-    // Update flow rate chart
-    charts.flowRate.data.datasets[0].data = [...dataBuffers.flowRate];
-    charts.flowRate.update('none');
-
-    // Update turbidity chart
-    charts.turbidity.data.datasets[0].data = [...dataBuffers.turbidity];
-    charts.turbidity.update('none');
-
-    // Update anomaly chart
-    if (dataBuffers.anomaly.normal) {
-        charts.anomaly.data.datasets[0].data = [...dataBuffers.anomaly.normal];
-    }
-    if (dataBuffers.anomaly.anomaly) {
-        charts.anomaly.data.datasets[1].data = [...dataBuffers.anomaly.anomaly];
-    }
-    charts.anomaly.update('none');
 }
 
 // ===========================
@@ -362,19 +411,17 @@ function updateCharts() {
 // ===========================
 
 function showLeakAlert(data) {
-    const alertBanner = document.getElementById('alertBanner');
-    const alertDetails = document.getElementById('alertDetails');
+    const banner = document.getElementById('alertBanner');
+    const details = document.getElementById('alertDetails');
 
-    const time = new Date(data.timestamp).toLocaleTimeString();
-    const details = `Flow: ${data.flow_rate.toFixed(2)} L/min | Confidence: ${(data.confidence * 100).toFixed(0)}% | Time: ${time}`;
+    details.textContent = `Detected at ${new Date(data.timestamp).toLocaleTimeString()} | Confidence: ${(data.confidence * 100).toFixed(1)}%`;
 
-    alertDetails.textContent = details;
-    alertBanner.classList.remove('hidden');
+    banner.classList.remove('hidden');
 
-    // Auto-hide after 5 seconds
+    // Auto-hide after 10 seconds
     setTimeout(() => {
-        alertBanner.classList.add('hidden');
-    }, 5000);
+        banner.classList.add('hidden');
+    }, 10000);
 }
 
 function closeAlert() {
@@ -387,72 +434,71 @@ function closeAlert() {
 
 function startSimulation() {
     socket.emit('start_simulation');
+    simulationStartTime = Date.now();
+    startTimer();
 
-    // Update UI
     document.getElementById('startBtn').disabled = true;
     document.getElementById('pauseBtn').disabled = false;
     document.getElementById('stopBtn').disabled = false;
-
-    // Start timer
-    simulationStartTime = Date.now();
-    timerInterval = setInterval(updateTimer, 1000);
-
-    // Clear buffers
-    dataBuffers.flowRate = [];
-    dataBuffers.turbidity = [];
-    dataBuffers.anomaly = { normal: [], anomaly: [] };
-
-    // Update status
-    const statusBadge = document.getElementById('simulationStatus');
-    statusBadge.textContent = 'RUNNING';
-    statusBadge.className = 'status-badge status-running';
 }
 
 function pauseSimulation() {
-    const pauseBtn = document.getElementById('pauseBtn');
+    socket.emit('pause_simulation');
+    stopTimer();
 
-    if (pauseBtn.textContent.includes('Pause')) {
-        socket.emit('pause_simulation');
-        pauseBtn.innerHTML = '<span class="btn-icon">▶</span> Resume';
+    document.getElementById('pauseBtn').textContent = '▶ Resume';
+    document.getElementById('pauseBtn').onclick = resumeSimulation;
+}
 
-        const statusBadge = document.getElementById('simulationStatus');
-        statusBadge.textContent = 'PAUSED';
-        statusBadge.className = 'status-badge status-paused';
-    } else {
-        socket.emit('resume_simulation');
-        pauseBtn.innerHTML = '<span class="btn-icon">⏸</span> Pause';
+function resumeSimulation() {
+    socket.emit('resume_simulation');
+    startTimer();
 
-        const statusBadge = document.getElementById('simulationStatus');
-        statusBadge.textContent = 'RUNNING';
-        statusBadge.className = 'status-badge status-running';
-    }
+    document.getElementById('pauseBtn').textContent = '⏸ Pause';
+    document.getElementById('pauseBtn').onclick = pauseSimulation;
 }
 
 function stopSimulation() {
     socket.emit('stop_simulation');
+    stopTimer();
+    simulationStartTime = null;
 
-    // Update UI
     document.getElementById('startBtn').disabled = false;
     document.getElementById('pauseBtn').disabled = true;
-    document.getElementById('pauseBtn').innerHTML = '<span class="btn-icon">⏸</span> Pause';
     document.getElementById('stopBtn').disabled = true;
-
-    // Stop timer
-    clearInterval(timerInterval);
     document.getElementById('simulationTime').textContent = '00:00:00';
-
-    // Update status
-    const statusBadge = document.getElementById('simulationStatus');
-    statusBadge.textContent = 'IDLE';
-    statusBadge.className = 'status-badge status-idle';
 }
 
 function handleSimulationStatus(data) {
-    console.log('Simulation status:', data.status);
+    const statusBadge = document.getElementById('simulationStatus');
+    statusBadge.className = 'status-badge';
+
+    switch (data.status) {
+        case 'running':
+            statusBadge.classList.add('status-running');
+            statusBadge.textContent = 'RUNNING';
+            break;
+        case 'paused':
+            statusBadge.classList.add('status-paused');
+            statusBadge.textContent = 'PAUSED';
+            break;
+        case 'stopped':
+            statusBadge.classList.add('status-idle');
+            statusBadge.textContent = 'IDLE';
+            break;
+    }
 }
 
-function updateTimer() {
-    if (simulationStartTime) {
+// ===========================
+// Timer
+// ===========================
+
+function startTimer() {
+    if (timerInterval) return;
+
+    timerInterval = setInterval(() => {
+        if (!simulationStartTime) return;
+
         const elapsed = Date.now() - simulationStartTime;
         const hours = Math.floor(elapsed / 3600000);
         const minutes = Math.floor((elapsed % 3600000) / 60000);
@@ -460,5 +506,12 @@ function updateTimer() {
 
         const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         document.getElementById('simulationTime').textContent = timeString;
+    }, 1000);
+}
+
+function stopTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
     }
 }

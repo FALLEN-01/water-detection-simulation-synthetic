@@ -23,7 +23,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 import tensorflow as tf
 
 print("\n" + "="*60)
-print("ESP32-S3 OPTIMIZED WATER LEAK DETECTION MODEL")
+print("ESP32-S3 OPTIMIZED MODEL")
 print("="*60)
 
 # Load datasets
@@ -52,7 +52,7 @@ def create_windows(data, window_size):
         windows.append(data[i:i + window_size])
     return np.array(windows)
 
-print("\nCreating sliding windows...")
+print("\nPreparing data...")
 train_data = train_df[feature_cols].values
 test_data = test_df[feature_cols].values
 test_labels = test_df['label'].values
@@ -61,15 +61,13 @@ train_windows = create_windows(train_data, WINDOW_SIZE)
 test_windows = create_windows(test_data, WINDOW_SIZE)
 test_window_labels = test_labels[WINDOW_SIZE - 1:]
 
-print(f"Training: {len(train_windows):,} windows")
-print(f"Testing: {len(test_windows):,} windows ({(test_window_labels==1).sum():,} leaks)")
-print(f"Window shape: {train_windows.shape}")
+print(f"Training samples: {len(train_windows):,} | Test samples: {len(test_windows):,} | Leaks: {(test_window_labels==1).sum():,}")
 
 # ============================================================================
-# ESP32-S3 OPTIMIZED MODEL (Smaller than original)
+# ESP32-S3 OPTIMIZED MODEL
 # ============================================================================
 print("\n" + "="*60)
-print("Building ESP32-S3 Optimized LSTM Autoencoder")
+print("Building Model")
 print("="*60)
 
 timesteps = WINDOW_SIZE
@@ -97,8 +95,6 @@ autoencoder.compile(optimizer=Adam(learning_rate=0.001), loss="mse")
 
 print(f"\nModel Parameters: {autoencoder.count_params():,}")
 print("Target: <5,000 parameters for ESP32-S3")
-print("\nModel Summary:")
-autoencoder.summary()
 
 # Train the model
 print("\n" + "="*60)
@@ -154,7 +150,7 @@ print(f"TP: {true_positives:,} | FP: {false_positives:,} | TN: {true_negatives:,
 # SAVE MODELS FOR ESP32-S3
 # ============================================================================
 print(f"\n" + "="*60)
-print("Exporting Models for ESP32-S3")
+print("Exporting Models")
 print("="*60)
 
 # Create directory if it doesn't exist
@@ -167,7 +163,7 @@ keras_size = os.path.getsize(keras_path) / 1024
 print(f"\n✓ Saved Keras model: {keras_path} ({keras_size:.1f} KB)")
 
 # 2. Convert to TFLite (float32)
-print("\nConverting to TFLite (float32)...")
+print("Converting to TFLite...")
 converter = tf.lite.TFLiteConverter.from_keras_model(autoencoder)
 # Fix LSTM conversion issues
 converter.target_spec.supported_ops = [
@@ -184,7 +180,7 @@ tflite_size = os.path.getsize(tflite_path) / 1024
 print(f"✓ Saved TFLite (float32): {tflite_path} ({tflite_size:.1f} KB)")
 
 # 3. Convert to Quantized TFLite (int8) - CRITICAL for ESP32-S3
-print("\nConverting to Quantized TFLite (int8)...")
+print("Quantizing to int8...")
 
 def representative_dataset():
     """Representative dataset for quantization"""
