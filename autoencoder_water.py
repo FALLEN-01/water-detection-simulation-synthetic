@@ -183,17 +183,17 @@ print("\nExporting model for ESP32...")
 import tensorflow as tf
 
 # Save Keras model (for reference)
-autoencoder.save("esp32_model/autoencoder_lstm.h5")
-print("Saved: esp32_model/autoencoder_lstm.h5")
+autoencoder.save("esp32_s3_model/autoencoder_lstm.h5")
+print("Saved: esp32_s3_model/autoencoder_lstm.h5")
 
 # Convert to quantized TFLite (int8, for microcontrollers)
 converter = tf.lite.TFLiteConverter.from_keras_model(autoencoder)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
 try:
     tflite_model = converter.convert()
-    with open("esp32_model/autoencoder_lstm_int8.tflite", "wb") as f:
+    with open("esp32_s3_model/autoencoder_lstm_int8.tflite", "wb") as f:
         f.write(tflite_model)
-    print("Saved: esp32_model/autoencoder_lstm_int8.tflite")
+    print("Saved: esp32_s3_model/autoencoder_lstm_int8.tflite")
 except Exception as e:
     print("TFLite conversion failed:", e)
 

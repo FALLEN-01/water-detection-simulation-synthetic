@@ -76,7 +76,7 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python tflite_to_c_array.py <input.tflite> [output.h]")
         print("\nExample:")
-        print("  python tflite_to_c_array.py esp32_model/esp32_autoencoder_int8.tflite")
+        print("  python tflite_to_c_array.py esp32_s3_model/esp32_autoencoder_int8.tflite")
         sys.exit(1)
     
     tflite_path = sys.argv[1]
