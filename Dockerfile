@@ -11,7 +11,7 @@ RUN pip install --upgrade pip && \
 COPY *.py .
 COPY priors_india/ ./priors_india/
 
-CMD ["python", "-u", "main.py"]
+#CMD ["python", "-u", "main.py"]
 #CMD ["python", "-u", "esp32_optimize.py"]
 
 #CMD ["sh", "-c", "python -u main.py && python -u esp32_optimize.py"]

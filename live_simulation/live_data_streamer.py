@@ -38,6 +38,8 @@ class LiveSyntheticDataGenerator:
         self.leak_start_time = None
         self.leak_duration = 0
         self.leak_severity = 0
+        self.last_leak_end_time = None  # Track when last leak ended
+        self.leak_cooldown_minutes = 3  # Minimum 3 minutes between leaks
         
         # Simulation time (starts at current time)
         self.simulation_time = datetime.now()
@@ -122,11 +124,18 @@ class LiveSyntheticDataGenerator:
     
     def _inject_leak(self):
         """Randomly inject a leak event"""
-        if not self.leak_active and random.random() < self.leak_probability:
+        # Check cooldown period
+        if self.last_leak_end_time is not None:
+            time_since_last_leak = (self.simulation_time - self.last_leak_end_time).total_seconds() / 60
+            if time_since_last_leak < self.leak_cooldown_minutes:
+                return  # Still in cooldown period
+        
+        # Reduced probability: 0.5% per minute instead of 2%
+        if not self.leak_active and random.random() < 0.005:
             self.leak_active = True
             self.leak_start_time = self.simulation_time
-            # Leak duration: 5-30 minutes
-            self.leak_duration = random.randint(5, 30)
+            # Leak duration: 1-2 minutes (reduced for demo)
+            self.leak_duration = random.randint(1, 2)
             # Leak severity: 20-80% increase in flow
             self.leak_severity = random.uniform(0.2, 0.8)
             print(f"💧 Leak injected at {self.simulation_time.strftime('%H:%M:%S')} "
@@ -138,7 +147,9 @@ class LiveSyntheticDataGenerator:
             elapsed = (self.simulation_time - self.leak_start_time).total_seconds() / 60
             if elapsed >= self.leak_duration:
                 self.leak_active = False
+                self.last_leak_end_time = self.simulation_time  # Track when leak ended
                 print(f"✓ Leak ended at {self.simulation_time.strftime('%H:%M:%S')}")
+                print(f"🟢 System returned to NORMAL mode")
     
     def generate_sample(self) -> dict:
         """Generate a single real-time sample"""
