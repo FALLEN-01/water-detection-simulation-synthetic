@@ -55,7 +55,8 @@ function initializeWebSocket() {
     });
 
     socket.on('leak_alert', (data) => {
-        showLeakAlert(data);
+        console.log('Leak alert:', data);
+        // Alert banner removed - predictions shown in control panel
     });
 
     socket.on('simulation_status', (data) => {
@@ -413,6 +414,11 @@ function updateMetrics(sensorData, predictions) {
 function showLeakAlert(data) {
     const banner = document.getElementById('alertBanner');
     const details = document.getElementById('alertDetails');
+
+    // Check if elements exist (they may have been removed)
+    if (!banner || !details) {
+        return;
+    }
 
     details.textContent = `Detected at ${new Date(data.timestamp).toLocaleTimeString()} | Confidence: ${(data.confidence * 100).toFixed(1)}%`;
 

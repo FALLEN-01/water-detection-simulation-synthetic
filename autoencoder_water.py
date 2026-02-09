@@ -186,6 +186,12 @@ import tensorflow as tf
 autoencoder.save("esp32_s3_model/autoencoder_lstm.h5")
 print("Saved: esp32_s3_model/autoencoder_lstm.h5")
 
+# Save threshold for live inference
+threshold_path = "esp32_s3_model/autoencoder_lstm_threshold.txt"
+with open(threshold_path, 'w') as f:
+    f.write(str(THRESHOLD))
+print(f"Saved threshold: {threshold_path} (value: {THRESHOLD:.6f})")
+
 # Convert to quantized TFLite (int8, for microcontrollers)
 converter = tf.lite.TFLiteConverter.from_keras_model(autoencoder)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
