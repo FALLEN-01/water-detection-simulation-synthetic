@@ -2,10 +2,10 @@
 services:
   water-detection:
     build: .
-    container_name: water-detection-simulation
+    container_name: water-detection-training
     environment:
       - TF_CPP_MIN_LOG_LEVEL=3
       - TF_ENABLE_ONEDNN_OPTS=0
     volumes:
       - .:/app
-
+      - ./models:/app/models

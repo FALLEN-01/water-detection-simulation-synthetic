@@ -5,8 +5,11 @@
   "chart_update_interval_ms": 1000,
   "leak_injection_probability": 0.02,
   "max_flow_rate": 15.0,
+  "speed_multiplier": 1,
+  "fast_forward_max": 120,
   "models": {
-    "autoencoder_path": "models/autoencoder_lstm.h5",
+    "autoencoder_path": "models/autoencoder_lstm.keras",
+    "autoencoder_threshold_path": "models/autoencoder_lstm_threshold.txt",
     "isolation_forest_path": "models/isolation_forest_model.pkl"
   },
   "priors_directory": "../priors_india",
@@ -16,7 +19,7 @@
     "base_occupancy": 0.85
   },
   "display": {
-    "graph_window_seconds": 60,
+    "graph_window_seconds": 120,
     "alert_duration_ms": 5000
   }
 }

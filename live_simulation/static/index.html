@@ -1,124 +1,194 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Water Leak Detection - Live Dashboard</title>
-
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script
-        src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-
-    <!-- Socket.IO -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Water Leak Detection — Live Dashboard</title>
+  <meta name="description" content="Real-time AI water leak detection dashboard with LSTM autoencoder and Isolation Forest ensemble">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-
 <body>
-    <!-- Connection Status -->
-    <div id="connectionStatus" class="connection-status disconnected">
-        <span class="status-dot"></span>
-        <span class="status-text">Disconnected</span>
+
+  <!-- Background canvas for animated particles -->
+  <canvas id="bgCanvas"></canvas>
+
+  <!-- Connection pill -->
+  <div id="connectionStatus" class="conn-pill disconnected">
+    <span class="conn-dot"></span>
+    <span class="conn-text">Disconnected</span>
+  </div>
+
+  <div class="layout">
+
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo-ring">💧</div>
+        <div>
+          <h1 class="header-title">Water Leak Detection</h1>
+          <p class="header-sub">Real-Time AI Monitoring · India Priors</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="sim-time-wrap">
+          <span class="sim-time-label">SIM TIME</span>
+          <span id="simTimeDisplay" class="sim-time-val">--:-- --/--</span>
+        </div>
+        <div id="leakStatusBadge" class="leak-badge normal">
+          <span class="badge-pulse"></span>
+          <span id="leakStatusText">NORMAL</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== STAT CARDS ===== -->
+    <section class="stat-row">
+      <div class="stat-card" id="cardFlow">
+        <div class="stat-icon">🌊</div>
+        <div class="stat-body">
+          <div class="stat-label">Flow Rate</div>
+          <div class="stat-val"><span id="statFlow">--</span><span class="stat-unit">L/min</span></div>
+        </div>
+        <div class="stat-bar-wrap"><div id="barFlow" class="stat-bar blue"></div></div>
+      </div>
+
+      <div class="stat-card" id="cardTurb">
+        <div class="stat-icon">🔬</div>
+        <div class="stat-body">
+          <div class="stat-label">Turbidity</div>
+          <div class="stat-val"><span id="statTurb">--</span><span class="stat-unit">NTU</span></div>
+        </div>
+        <div class="stat-bar-wrap"><div id="barTurb" class="stat-bar purple"></div></div>
+      </div>
+
+      <div class="stat-card" id="cardRecon">
+        <div class="stat-icon">🧠</div>
+        <div class="stat-body">
+          <div class="stat-label">LSTM Error</div>
+          <div class="stat-val"><span id="statRecon">--</span><span class="stat-unit">MSE</span></div>
+        </div>
+        <div class="stat-bar-wrap"><div id="barRecon" class="stat-bar cyan"></div></div>
+      </div>
+
+      <div class="stat-card" id="cardConf">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-body">
+          <div class="stat-label">Confidence</div>
+          <div class="stat-val"><span id="statConf">--</span><span class="stat-unit">%</span></div>
+        </div>
+        <div class="stat-bar-wrap"><div id="barConf" class="stat-bar green"></div></div>
+      </div>
+    </section>
+
+    <!-- ===== CONTROLS ===== -->
+    <section class="controls-row">
+      <!-- Simulation controls -->
+      <div class="ctrl-card">
+        <div class="ctrl-title">Simulation</div>
+        <div class="ctrl-btns">
+          <button id="startBtn" class="btn btn-start" onclick="startSimulation()">▶ Start</button>
+          <button id="pauseBtn" class="btn btn-pause" onclick="pauseSimulation()" disabled>⏸ Pause</button>
+          <button id="stopBtn"  class="btn btn-stop"  onclick="stopSimulation()"  disabled>⏹ Stop</button>
+        </div>
+        <div class="ctrl-meta">
+          <span id="simStatus" class="status-pill idle">IDLE</span>
+          <span id="simElapsed" class="elapsed-time">00:00:00</span>
+        </div>
+      </div>
+
+      <!-- Fast-forward -->
+      <div class="ctrl-card">
+        <div class="ctrl-title">Fast Forward</div>
+        <div class="speed-wrap">
+          <input type="range" id="speedSlider" min="1" max="120" value="1"
+                 step="1" oninput="onSpeedChange(this.value)">
+          <div class="speed-labels">
+            <span>1×</span>
+            <span id="speedLabel" class="speed-current">1×</span>
+            <span>120×</span>
+          </div>
+        </div>
+        <div class="speed-tips">
+          <span class="tip-chip">60× = 1 day in ~24s</span>
+          <span class="tip-chip">120× = 1 day in ~12s</span>
+        </div>
+      </div>
+
+      <!-- AI predictions -->
+      <div class="ctrl-card ai-card">
+        <div class="ctrl-title">AI Ensemble</div>
+        <div class="ai-preds">
+          <div class="ai-row">
+            <span class="ai-model">🤖 Autoencoder</span>
+            <span id="predAutoencoder" class="ai-result pending">—</span>
+          </div>
+          <div class="ai-row">
+            <span class="ai-model">🌲 Isolation Forest</span>
+            <span id="predIsolation" class="ai-result pending">—</span>
+          </div>
+          <div class="ai-divider"></div>
+          <div class="ai-row ai-ensemble-row">
+            <span class="ai-model">⚡ Ensemble</span>
+            <span id="predEnsemble" class="ai-result pending ensemble">—</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CHARTS ===== -->
+    <section class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-hdr">
+          <h3>Flow Rate</h3>
+          <span class="chart-badge">L/min</span>
+        </div>
+        <div class="chart-wrap"><canvas id="chartFlow"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-hdr">
+          <h3>Turbidity</h3>
+          <span class="chart-badge">NTU</span>
+        </div>
+        <div class="chart-wrap"><canvas id="chartTurb"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-hdr">
+          <h3>LSTM Reconstruction Error</h3>
+          <span class="chart-badge">Anomaly Signal</span>
+        </div>
+        <div class="chart-wrap"><canvas id="chartRecon"></canvas></div>
+      </div>
+
+      <div class="chart-card full-span">
+        <div class="chart-hdr">
+          <h3>Anomaly Timeline</h3>
+          <span class="chart-badge">
+            <span class="legend-dot blue"></span>Normal &nbsp;
+            <span class="legend-dot red"></span>Leak Detected
+          </span>
+        </div>
+        <div class="chart-wrap"><canvas id="chartAnomaly"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ===== ALERT BANNER ===== -->
+    <div id="alertBanner" class="alert-banner hidden">
+      <div class="alert-icon">🚨</div>
+      <div class="alert-body">
+        <div class="alert-title">LEAK DETECTED</div>
+        <div id="alertDetail" class="alert-detail">—</div>
+      </div>
+      <button class="alert-close" onclick="closeAlert()">✕</button>
     </div>
 
-    <!-- Main Container -->
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <h1 class="title"><span class="icon">💧</span> Water Leak Detection</h1>
-            <p class="subtitle">Real-Time AI Monitoring</p>
-        </header>
+  </div><!-- /layout -->
 
-        <!-- Control Panel - Two Cards -->
-        <div class="control-panel-container">
-            <!-- Left Card: Controls -->
-            <section class="control-card">
-                <div class="controls">
-                    <button id="startBtn" class="btn btn-primary" onclick="startSimulation()">
-                        <span class="btn-icon">▶</span> Start
-                    </button>
-                    <button id="pauseBtn" class="btn btn-secondary" onclick="pauseSimulation()" disabled>
-                        <span class="btn-icon">⏸</span> Pause
-                    </button>
-                    <button id="stopBtn" class="btn btn-danger" onclick="stopSimulation()" disabled>
-                        <span class="btn-icon">⏹</span> Stop
-                    </button>
-                </div>
-
-                <div class="simulation-info">
-                    <span id="simulationStatus" class="status-badge status-idle">IDLE</span>
-                    <span id="simulationTime" class="time-display">00:00:00</span>
-                </div>
-            </section>
-
-            <!-- Right Card: AI Predictions -->
-            <section class="control-card ai-card">
-                <div class="ai-predictions">
-                    <div class="ai-badge">
-                        <span class="ai-label">🤖 Auto:</span>
-                        <span id="autoencoderPrediction" class="ai-value">-</span>
-                    </div>
-                    <div class="ai-badge">
-                        <span class="ai-label">🌲 IsoF:</span>
-                        <span id="isolationPrediction" class="ai-value">-</span>
-                    </div>
-                </div>
-            </section>
-        </div>
-
-        <!-- Main Content: Charts Only -->
-        <div class="main-content">
-            <!-- Charts Grid -->
-            <section class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Flow Rate</h3>
-                        <span class="chart-info">60s</span>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="flowRateChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Turbidity</h3>
-                        <span class="chart-info">60s</span>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="turbidityChart"></canvas>
-                    </div>
-                </div>
-
-                <div class="chart-card full-width">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Anomaly Timeline</h3>
-                        <span class="chart-info">
-                            <span class="legend-item">
-                                <span class="legend-dot normal"></span> Normal
-                            </span>
-                            <span class="legend-item">
-                                <span class="legend-dot anomaly"></span> Leak
-                            </span>
-                        </span>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="anomalyChart"></canvas>
-                    </div>
-                </div>
-            </section>
-        </div>
-    </div>
-
-    <!-- Custom JavaScript -->
-    <script src="/static/app.js"></script>
+  <script src="/static/app.js"></script>
 </body>
-
 </html>
