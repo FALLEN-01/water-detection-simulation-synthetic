@@ -178,29 +178,17 @@ print("Saved: autoencoder_results.png")
 plt.close()
 
 
-# === Export model for ESP32 ===
-print("\nExporting model for ESP32...")
-import tensorflow as tf
+# === Save model for live inference ===
+print("\nSaving model for live inference...")
+import os
+os.makedirs("models", exist_ok=True)
 
-# Save Keras model (for reference)
-autoencoder.save("esp32_s3_model/autoencoder_lstm.h5")
-print("Saved: esp32_s3_model/autoencoder_lstm.h5")
+autoencoder.save("models/autoencoder_lstm.h5")
+print("Saved: models/autoencoder_lstm.h5")
 
-# Save threshold for live inference
-threshold_path = "esp32_s3_model/autoencoder_lstm_threshold.txt"
+threshold_path = "models/autoencoder_lstm_threshold.txt"
 with open(threshold_path, 'w') as f:
     f.write(str(THRESHOLD))
 print(f"Saved threshold: {threshold_path} (value: {THRESHOLD:.6f})")
-
-# Convert to quantized TFLite (int8, for microcontrollers)
-converter = tf.lite.TFLiteConverter.from_keras_model(autoencoder)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-try:
-    tflite_model = converter.convert()
-    with open("esp32_s3_model/autoencoder_lstm_int8.tflite", "wb") as f:
-        f.write(tflite_model)
-    print("Saved: esp32_s3_model/autoencoder_lstm_int8.tflite")
-except Exception as e:
-    print("TFLite conversion failed:", e)
 
 print("Autoencoder complete!")

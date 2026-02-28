@@ -154,16 +154,12 @@ plt.close()
 # === Save model for live inference ===
 print("\nSaving model for live inference...")
 import pickle
+import os
+os.makedirs("models", exist_ok=True)
 
 # Save Isolation Forest model
-with open("esp32_s3_model/isolation_forest_model.pkl", "wb") as f:
+with open("models/isolation_forest_model.pkl", "wb") as f:
     pickle.dump(model, f)
-print("Saved: esp32_s3_model/isolation_forest_model.pkl")
-
-# Save scaler (if needed - for now just create empty placeholder)
-# In this case we don't use a scaler, but create empty file for compatibility
-with open("esp32_s3_model/scaler.pkl", "wb") as f:
-    pickle.dump(None, f)
-print("Saved: esp32_s3_model/scaler.pkl (placeholder)")
+print("Saved: models/isolation_forest_model.pkl")
 
 print("Isolation Forest complete!")
