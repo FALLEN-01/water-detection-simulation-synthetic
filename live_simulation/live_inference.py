@@ -36,8 +36,8 @@ class LiveInferenceEngine:
 
         print("LiveInferenceEngine ready:")
         print(f"  Window size: {self.window_size}")
-        print(f"  Autoencoder: {'✓' if self.autoencoder is not None else '✗'}")
-        print(f"  IsolationForest: {'✓' if self.isolation_forest is not None else '✗'}")
+        print(f"  Autoencoder:     {'[OK]' if self.autoencoder is not None else '[--]'}")
+        print(f"  IsolationForest: {'[OK]' if self.isolation_forest is not None else '[--]'}")
 
     def _load_models(self):
         """Load pre-trained models from models/ directory"""

@@ -138,7 +138,7 @@ class LiveSyntheticDataGenerator:
             self.leak_start_time = self.simulation_time
             self.leak_duration   = random.randint(3, 15)         # sim-minutes
             self.leak_severity   = random.uniform(0.20, 0.70)
-            print(f"  💧 Leak @ {self.simulation_time.strftime('%H:%M')} "
+            print(f"  [LEAK] @ {self.simulation_time.strftime('%H:%M')} "
                   f"dur={self.leak_duration}min sev={self.leak_severity*100:.0f}%")
 
     def _update_leak(self):
@@ -148,7 +148,7 @@ class LiveSyntheticDataGenerator:
         if elapsed >= self.leak_duration:
             self.leak_active        = False
             self.last_leak_end_time = self.simulation_time
-            print(f"  ✓ Leak ended @ {self.simulation_time.strftime('%H:%M')}")
+            print(f"  [END]  Leak ended @ {self.simulation_time.strftime('%H:%M')}")
 
     # ------------------------------------------------------------------
     # Public API
