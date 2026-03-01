@@ -1,12 +1,13 @@
 """
-Autoencoder (LSTM) — Water Leak Detection
+1D CNN Autoencoder — Water Leak Detection
 ==========================================
-Trained on data from MULTIPLE building profiles so it learns
-generalized "normal" usage patterns, not just one building.
+Faster alternative to LSTM: fully parallelizable Conv1D layers.
+Rolling-mean preprocessing smooths transient noise so the model
+focuses on sustained pattern shifts (real leaks), not single spikes.
 
-Architecture: LSTM encoder-decoder with slightly larger capacity
-(64→32 units) for better temporal pattern learning without
-over-fitting to one building's quirks.
+Architecture:  Conv1D encoder → bottleneck → Conv1D decoder
+Preprocessing: 3-sample rolling mean per feature before windowing
+Estimated training time: ~20-30 min (vs 2 hrs for LSTM)
 """
 
 import os
@@ -17,14 +18,13 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import (Input, LSTM, Dense, Dropout,
-                                     RepeatVector, TimeDistributed,
-                                     BatchNormalization)
+from tensorflow.keras.layers import (Input, Conv1D, MaxPooling1D,
+                                     UpSampling1D, Dropout)
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
-print("\nAutoencoder (LSTM) — Water Leak Detection")
+print("\n1D CNN Autoencoder — Water Leak Detection")
 print("=" * 50)
 print("Loading datasets...")
 
@@ -61,9 +61,20 @@ def create_windows(data, window_size):
     ).reshape(n, window_size, data.shape[1])
     return windows.astype(np.float32)
 
-print("\nCreating sliding windows...")
-train_data = train_df[feature_cols].values.astype(np.float32)
-test_data  = test_df[feature_cols].values.astype(np.float32)
+# =====================================================
+# Rolling mean preprocessing
+# =====================================================
+def rolling_mean(arr, k=3):
+    """Apply k-sample rolling mean along time axis (T, F)"""
+    out = np.empty_like(arr)
+    for t in range(len(arr)):
+        s = max(0, t - k + 1)
+        out[t] = arr[s:t+1].mean(axis=0)
+    return out.astype(np.float32)
+
+print("\nApplying rolling mean (k=3) to smooth transient noise...")
+train_data = rolling_mean(train_df[feature_cols].values.astype(np.float32))
+test_data  = rolling_mean(test_df[feature_cols].values.astype(np.float32))
 test_labels = test_df['label'].values
 
 train_windows = create_windows(train_data, WINDOW_SIZE)
@@ -78,22 +89,25 @@ print(f"Testing windows:  {len(test_windows):,}  "
 # =====================================================
 # Model Architecture
 # =====================================================
-print("\nBuilding LSTM Autoencoder...")
+print("\nBuilding 1D CNN Autoencoder...")
 
-inp = Input(shape=(WINDOW_SIZE, n_features), name='encoder_input')
+inp = Input(shape=(WINDOW_SIZE, n_features), name='cnn_input')
 
-# --- Encoder --- (slimmed: 24→12 units, ~5× fewer params, same accuracy)
-x = LSTM(24, activation='tanh', return_sequences=True,  name='enc_lstm1')(inp)
-x = Dropout(0.15)(x)
-x = LSTM(12, activation='tanh', return_sequences=False, name='enc_lstm2')(x)
-encoded = Dropout(0.10)(x)
+# --- Encoder ---
+x = Conv1D(32, 3, activation='relu', padding='same', name='enc_conv1')(inp)
+x = Dropout(0.10)(x)
+x = Conv1D(16, 3, activation='relu', padding='same', name='enc_conv2')(x)
+x = MaxPooling1D(2, name='enc_pool')(x)          # (5, 16)
+
+# --- Bottleneck ---
+x = Conv1D(8, 3, activation='relu', padding='same', name='bottleneck')(x)
 
 # --- Decoder ---
-x = RepeatVector(WINDOW_SIZE)(encoded)
-x = LSTM(12, activation='tanh', return_sequences=True,  name='dec_lstm1')(x)
+x = UpSampling1D(2, name='dec_up')(x)            # (10, 8)
+x = Conv1D(16, 3, activation='relu', padding='same', name='dec_conv1')(x)
 x = Dropout(0.10)(x)
-x = LSTM(24, activation='tanh', return_sequences=True,  name='dec_lstm2')(x)
-decoded = TimeDistributed(Dense(n_features), name='output')(x)
+x = Conv1D(32, 3, activation='relu', padding='same', name='dec_conv2')(x)
+decoded = Conv1D(n_features, 1, activation='linear', name='output')(x)
 
 autoencoder = Model(inp, decoded)
 autoencoder.compile(optimizer=Adam(learning_rate=0.001), loss='mse')

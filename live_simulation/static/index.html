@@ -83,8 +83,6 @@
           <span class="sc-lbl">SIM TIME</span>
           <span id="simTimeDisplay" class="sc-val mono">--:-- --/--</span>
         </div>
-        <div class="simclock" id="simTimeDisplay">--:-- --/--</div>
-      </div>
     </header>
 
     <!-- ===== MAIN AREA ===== -->
@@ -97,10 +95,12 @@
         <div class="panel glass">
           <div class="panel-lbl">SIMULATION</div>
           <div class="sim-btns">
-            <button id="btnStart" class="sbtn sbtn-green" onclick="startSimulation()">&#9654; START</button>
-            <button id="btnPause" class="sbtn sbtn-amber" onclick="pauseSimulation()" disabled>&#9646;&#9646;
-              PAUSE</button>
-            <button id="btnStop" class="sbtn sbtn-red" onclick="stopSimulation()" disabled>&#9632; STOP</button>
+            <button id="btnStart" class="sbtn sbtn-green sbtn-icon" onclick="startSimulation()"
+              title="Start">&#9654;</button>
+            <button id="btnPause" class="sbtn sbtn-amber sbtn-icon" onclick="pauseSimulation()" disabled
+              title="Pause">&#9646;&#9646;</button>
+            <button id="btnStop" class="sbtn sbtn-red   sbtn-icon" onclick="stopSimulation()" disabled
+              title="Stop">&#9632;</button>
           </div>
           <div class="sim-meta">
             <span id="simStatusPill" class="spill spill-idle">IDLE</span>
@@ -116,15 +116,12 @@
           </div>
           <input type="range" id="speedSlider" class="slider" min="1" max="120" value="1"
             oninput="onSpeedChange(this.value)">
-          <div class="speed-tips">
-            <span class="stip">60× = 1 day / 24s</span>
-            <span class="stip">120× = 1 day / 12s</span>
-          </div>
+
         </div>
 
         <!-- AI Predictions -->
         <div class="panel glass">
-          <div class="panel-lbl">AI PREDICTIONS</div>
+          <div class="panel-lbl">LEAK PREDICTIONS</div>
           <div class="ai-rows">
             <div class="ai-row">
               <span class="ai-name">LSTM Autoencoder</span>
@@ -143,11 +140,20 @@
           </div>
         </div>
 
+        <!-- Reconstruction Error mini-chart (below AI predictions) -->
+        <div class="panel glass" id="panel-recon">
+          <div class="panel-lbl">RECONSTRUCTION ERROR</div>
+          <div class="recon-mini">
+            <canvas id="cRecon"></canvas>
+          </div>
+        </div>
+
       </aside>
 
       <!-- CHARTS 2×2 -->
       <div class="charts-grid">
 
+        <!-- 2x2: Flow + Turbidity -->
         <div class="chart-card glass" id="cc-flow">
           <div class="cc-hdr">
             <span class="cc-title">Flow Rate</span>
@@ -156,19 +162,20 @@
           <div class="cc-body"><canvas id="cFlow"></canvas></div>
         </div>
 
-        <div class="chart-card glass" id="cc-recon">
+        <div class="chart-card glass" id="cc-turb">
           <div class="cc-hdr">
-            <span class="cc-title">LSTM Reconstruction Error</span>
-            <span class="cc-pill">vs Threshold</span>
+            <span class="cc-title">Turbidity</span>
+            <span class="cc-pill">NTU</span>
           </div>
-          <div class="cc-body"><canvas id="cRecon"></canvas></div>
+          <div class="cc-body"><canvas id="cTurb"></canvas></div>
         </div>
 
+        <!-- 2x2: ECG anomaly monitors -->
         <div class="chart-card glass" id="cc-ae">
           <div class="cc-hdr">
-            <span class="cc-title">LSTM — Anomaly Timeline</span>
+            <span class="cc-title">Autoencoder</span>
             <div class="cc-leg">
-              <span class="leg-dot blue"></span>Normal
+              <span class="leg-dot ecg-green"></span>Normal &nbsp;
               <span class="leg-dot red"></span>Anomaly
             </div>
           </div>
@@ -177,9 +184,9 @@
 
         <div class="chart-card glass" id="cc-if">
           <div class="cc-hdr">
-            <span class="cc-title">Isolation Forest — Anomaly Timeline</span>
+            <span class="cc-title">Isolation Forest</span>
             <div class="cc-leg">
-              <span class="leg-dot blue"></span>Normal
+              <span class="leg-dot ecg-green"></span>Normal &nbsp;
               <span class="leg-dot red"></span>Anomaly
             </div>
           </div>

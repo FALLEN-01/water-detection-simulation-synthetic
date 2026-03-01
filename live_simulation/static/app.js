@@ -18,9 +18,10 @@ let maxReconErr = 0.001;
 const MAX_PTS = 300;
 const bufs = {
   flow: [],
+  turb: [],
   recon: [],
-  ae_norm: [], ae_anom: [],
-  if_norm: [], if_anom: [],
+  ae: [], // { x, y: flowRate, a: 0|1 }
+  ifBuf: [], // same
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -175,54 +176,107 @@ function initCharts() {
     data: {
       datasets: [
         {
-          data: [], borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.08)',
-          borderWidth: 1.8, fill: true, tension: 0.3, pointRadius: 0
+          data: [], borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.12)',
+          borderWidth: 1.5, fill: true, tension: 0.3, pointRadius: 0
         },
         {
           data: [], borderColor: '#d97706', borderWidth: 1.2,
-          borderDash: [5, 3], fill: false, pointRadius: 0
+          borderDash: [4, 2], fill: false, pointRadius: 0, tension: 0
         },
       ]
     },
-    options: mkOpts(),
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { display: false, type: 'time' },   // sparkline — hide axis, still parse Date x-values
+        y: {
+          display: true,
+          grid: { display: false },
+          border: { display: false },
+          ticks: { color: '#94a3b8', maxTicksLimit: 2, font: { size: 9 } },
+        },
+      },
+    },
   });
 
-  const scOpts = (mn, mx) => ({
-    ...mkOpts(mn, mx), plugins: { legend: { display: false } },
+  // Turbidity line chart
+  charts.turb = new Chart(document.getElementById('cTurb'), {
+    type: 'line',
+    data: {
+      datasets: [{
+        data: [],
+        borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.08)',
+        borderWidth: 1.8, fill: true, tension: 0.4, pointRadius: 0
+      }]
+    },
+    options: mkOpts(0, 4),
   });
+
+  // ECG Monitor style: razor-thin line, tension=0 (sharp corners),
+  // phosphor green when normal, red when anomaly — exactly like cardiac ECG.
+  function ecgDataset() {
+    return {
+      data: [],
+      borderWidth: 1.2,
+      pointRadius: 0,
+      fill: false,
+      tension: 0,          // sharp ECG corners, no smoothing
+      borderColor: '#00ff88',
+      segment: {
+        borderColor: ctx =>
+          ctx.p1.raw?.a ? '#ff3d3d' : '#00ff88',
+      },
+    };
+  }
+
+  // ECG chart options — same axis style as flow/turbidity for visual consistency
+  function mkEcgOpts() {
+    return {
+      animation: false,
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            displayFormats: { minute: 'HH:mm', hour: 'HH:mm', second: 'HH:mm:ss' },
+            tooltipFormat: 'HH:mm dd/MM/yy',
+          },
+          grid: { color: 'rgba(2,132,199,0.08)' },
+          ticks: { color: '#64748b', maxTicksLimit: 4, maxRotation: 0 },
+        },
+        y: {
+          min: 0, max: 15,
+          grid: { color: 'rgba(2,132,199,0.08)' },
+          ticks: { color: '#64748b', maxTicksLimit: 3 },
+        },
+      },
+    };
+  }
 
   charts.anomalyAE = new Chart(document.getElementById('cAnomalyAE'), {
-    type: 'scatter',
-    data: {
-      datasets: [
-        { data: [], backgroundColor: 'rgba(2,132,199,0.5)', borderColor: '#0284c7', pointRadius: 2.5 },
-        { data: [], backgroundColor: 'rgba(220,38,38,0.8)', borderColor: '#dc2626', pointRadius: 4 },
-      ]
-    }, options: scOpts(0, 15),
+    type: 'line',
+    data: { datasets: [ecgDataset()] },
+    options: mkEcgOpts(),
   });
 
   charts.anomalyIF = new Chart(document.getElementById('cAnomalyIF'), {
-    type: 'scatter',
-    data: {
-      datasets: [
-        { data: [], backgroundColor: 'rgba(2,132,199,0.5)', borderColor: '#0284c7', pointRadius: 2.5 },
-        { data: [], backgroundColor: 'rgba(220,38,38,0.8)', borderColor: '#dc2626', pointRadius: 4 },
-      ]
-    }, options: scOpts(0, 15),
+    type: 'line',
+    data: { datasets: [ecgDataset()] },
+    options: mkEcgOpts(),
   });
 }
 
 function push(buf, pt) { buf.push(pt); if (buf.length > MAX_PTS) buf.shift(); }
 
-function setW(ch, buf) {
-  if (buf.length < 2) return;
-  ch.options.scales.x.min = +buf[0].x;
-  ch.options.scales.x.max = +buf[buf.length - 1].x;
-}
-
 function updateCharts() {
+  if (bufs.flow.length === 0) return; // wait for data — prevents Chart.js defaulting to full-day x-range
   charts.flow.data.datasets[0].data = bufs.flow;
-  setW(charts.flow, bufs.flow); charts.flow.update('none');
+  charts.flow.update('none');
+
+  charts.turb.data.datasets[0].data = bufs.turb;
+  charts.turb.update('none');
 
   charts.recon.data.datasets[0].data = bufs.recon;
   charts.recon.data.datasets[1].data = bufs.recon.map(p => ({ x: p.x, y: p.threshold }));
@@ -230,21 +284,14 @@ function updateCharts() {
     const mx = Math.max(...bufs.recon.map(p => p.y), bufs.recon[0]?.threshold || 0) * 1.35;
     if (mx > maxReconErr) { maxReconErr = mx; charts.recon.options.scales.y.max = mx; }
   }
-  setW(charts.recon, bufs.recon); charts.recon.update('none');
+  charts.recon.update('none');
 
-  // Scatter: give Chart.js a fresh array copy each tick so it detects
-  // the change and auto-scales the time axis from the actual data bounds.
-  charts.anomalyAE.data.datasets[0].data = bufs.ae_norm.slice();
-  charts.anomalyAE.data.datasets[1].data = bufs.ae_anom.slice();
-  charts.anomalyAE.options.scales.x.min = undefined;
-  charts.anomalyAE.options.scales.x.max = undefined;
-  charts.anomalyAE.update();
+  // ECG charts — auto-scale x from data (no explicit min/max)
+  charts.anomalyAE.data.datasets[0].data = bufs.ae.slice();
+  charts.anomalyAE.update('none');
 
-  charts.anomalyIF.data.datasets[0].data = bufs.if_norm.slice();
-  charts.anomalyIF.data.datasets[1].data = bufs.if_anom.slice();
-  charts.anomalyIF.options.scales.x.min = undefined;
-  charts.anomalyIF.options.scales.x.max = undefined;
-  charts.anomalyIF.update();
+  charts.anomalyIF.data.datasets[0].data = bufs.ifBuf.slice();
+  charts.anomalyIF.update('none');
 }
 
 // =============================================
@@ -297,10 +344,11 @@ function handleData(d) {
   setBadge('predEN', p.ensemble, true);
 
   push(bufs.flow, { x: ts, y: s.flow_rate });
+  push(bufs.turb, { x: ts, y: s.turbidity });
   push(bufs.recon, { x: ts, y: recon, threshold: thresh });
-  const pt = { x: ts, y: s.flow_rate };
-  push(p.autoencoder?.prediction === 1 ? bufs.ae_anom : bufs.ae_norm, pt);
-  push(p.isolation_forest?.prediction === 1 ? bufs.if_anom : bufs.if_norm, pt);
+  // ECG heartbeat: store flow value + anomaly flag a
+  push(bufs.ae, { x: ts, y: s.flow_rate, a: p.autoencoder?.prediction === 1 ? 1 : 0 });
+  push(bufs.ifBuf, { x: ts, y: s.flow_rate, a: p.isolation_forest?.prediction === 1 ? 1 : 0 });
 
   updateCharts();
 }
@@ -372,7 +420,9 @@ function pauseSimulation() {
   socket.emit('pause_simulation');
   stopTimer();
   const b = document.getElementById('btnPause');
-  b.textContent = '\u25ba RESUME'; b.onclick = resumeSimulation;
+  b.textContent = '\u25ba';          // ▶ resume icon
+  b.title = 'Resume';
+  b.onclick = resumeSimulation;
 }
 
 function resumeSimulation() {
@@ -380,7 +430,9 @@ function resumeSimulation() {
   socket.emit('resume_simulation');
   startTimer();
   const b = document.getElementById('btnPause');
-  b.innerHTML = '&#9646;&#9646; PAUSE'; b.onclick = pauseSimulation;
+  b.textContent = '\u23f8';          // ⏸ pause icon
+  b.title = 'Pause';
+  b.onclick = pauseSimulation;
 }
 
 function stopSimulation() {

@@ -381,12 +381,12 @@ body {
 /* Sim buttons */
 .sim-btns {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 6px;
 }
 
 .sbtn {
-  width: 100%;
+  flex: 1;
   padding: 8px 12px;
   border: none;
   border-radius: var(--r-sm);
@@ -613,7 +613,7 @@ body {
   }
 }
 
-/* ===== CHARTS 2×2 ===== */
+/* ===== CHARTS — 2×2 ===== */
 .charts-grid {
   flex: 1;
   min-width: 0;
@@ -688,6 +688,43 @@ body {
 
 .chart-card.leak-border {
   border-color: rgba(220, 38, 38, 0.3);
+}
+
+/* ECG Monitor card: dark phosphor-screen look */
+.ecg-card {
+  background: rgba(8, 16, 20, 0.88) !important;
+  border-color: rgba(0, 255, 136, 0.15) !important;
+}
+
+.ecg-card .cc-title {
+  color: rgba(0, 255, 136, 0.7);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.ecg-card .cc-leg {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Sidebar mini reconstruction error chart */
+.recon-mini {
+  position: relative;
+  height: 90px;
+  width: 100%;
+}
+
+.recon-mini canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.leg-dot.ecg-green {
+  background: #00ff88;
+}
+
+/* Anomaly heartbeat cards span 1.5 cols each in 3-col grid */
+.chart-half {
+  grid-column: span 1;
 }
 
 /* ===== ALERT ===== */

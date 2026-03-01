@@ -1,7 +1,8 @@
 """
 Live Inference Engine — Water Leak Detection
 =============================================
-Loads trained LSTM Autoencoder + Isolation Forest.
+Loads trained 1D CNN Autoencoder + Isolation Forest.
+Applies rolling-mean preprocessing (k=3) to match training pipeline.
 Runs real-time ensemble anomaly detection on streaming samples.
 """
 
@@ -25,24 +26,34 @@ class LiveInferenceEngine:
         self.window_size = self.config['window_size']   # 10 minutes
         self.max_flow    = self.config['max_flow_rate']
 
-        # Sliding window buffer for LSTM autoencoder
         self.window_buffer = deque(maxlen=self.window_size)
+        # Raw buffer for rolling-mean (one extra slot so roll is correct)
+        self._raw_buffer   = deque(maxlen=self.window_size)
 
         self.autoencoder           = None
         self.autoencoder_threshold = None
         self.isolation_forest      = None
 
         # Adaptive threshold — calibrated live from IF-confirmed normal samples
-        self._normal_mse_buf   = []      # ring buffer of MSEs on normal ticks
-        self._adaptive_thr     = None    # set after 50 normal samples
-        self._WARMUP           = 50      # samples before adaptive thr activates
+        self._normal_mse_buf   = []
+        self._adaptive_thr     = None
+        self._WARMUP           = 50
 
         self._load_models()
-
         print("LiveInferenceEngine ready:")
         print(f"  Window size: {self.window_size}")
-        print(f"  Autoencoder:     {'[OK]' if self.autoencoder is not None else '[--]'}")
+        print(f"  CNN Autoencoder: {'[OK]' if self.autoencoder is not None else '[--]'}")
         print(f"  IsolationForest: {'[OK]' if self.isolation_forest is not None else '[--]'}")
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _rolling_mean(arr, k=3):
+        """Apply k-step rolling mean along axis-0 of a 2D numpy array."""
+        out = np.empty_like(arr)
+        for t in range(len(arr)):
+            s = max(0, t - k + 1)
+            out[t] = arr[s:t+1].mean(axis=0)
+        return out
 
     def _load_models(self):
         """Load pre-trained models from models/ directory"""
@@ -117,9 +128,11 @@ class LiveInferenceEngine:
         # --- LSTM Autoencoder ---
         if self.autoencoder is not None and len(self.window_buffer) == self.window_size:
             try:
-                win = np.array(list(self.window_buffer), dtype=np.float32)
-                win_in = win.reshape(1, self.window_size, features.shape[0])
-                recon = self.autoencoder.predict(win_in, verbose=0)
+                # Apply rolling mean to the window (matches training pipeline)
+                win_raw = np.array(list(self.window_buffer), dtype=np.float32)
+                win     = self._rolling_mean(win_raw, k=3)
+                win_in  = win.reshape(1, self.window_size, features.shape[0])
+                recon   = self.autoencoder.predict(win_in, verbose=0)
                 mse = float(np.mean(np.square(win - recon[0])))
 
                 # Adaptive threshold: use IF-confirmed normal ticks as baseline
