@@ -135,6 +135,8 @@ function mkOpts(yMin = null, yMax = null) {
     scales: {
       x: {
         type: 'time',
+        bounds: 'data',   // exact data range, no nice-boundary padding
+        offset: false,
         time: {
           displayFormats: {
             millisecond: 'HH:mm:ss',
@@ -239,6 +241,8 @@ function initCharts() {
       scales: {
         x: {
           type: 'time',
+          bounds: 'data',
+          offset: false,
           time: {
             displayFormats: { minute: 'HH:mm', hour: 'HH:mm', second: 'HH:mm:ss' },
             tooltipFormat: 'HH:mm dd/MM/yy',
