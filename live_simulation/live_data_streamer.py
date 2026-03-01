@@ -41,7 +41,10 @@ class LiveSyntheticDataGenerator:
         self.leak_cooldown_min  = 5      # minimum gap between leaks
 
         # Simulation clock
-        self.simulation_time = datetime.now()
+        self.simulation_time       = datetime.now()
+        # Monotonic flow_duration counter — always increments by 60/tick
+        # regardless of speed, so LSTM sees same scale as training data
+        self._flow_dur_counter     = 0.0
 
         print(f"LiveSyntheticDataGenerator ready:")
         print(f"  Building: {self.num_apartments} apts, "
@@ -181,9 +184,9 @@ class LiveSyntheticDataGenerator:
             + random.gauss(0, 0.08),
             0.05, 4.0
         ))
-        flow_duration = float(
-            (self.simulation_time.hour * 3600 + self.simulation_time.minute * 60)
-        )
+        # Monotonic counter: always +60 per sample (matches training)
+        self._flow_dur_counter = (self._flow_dur_counter + 60.0) % 86400.0
+        flow_duration = self._flow_dur_counter
 
         sample = {
             'timestamp':       self.simulation_time.isoformat(),
@@ -206,8 +209,9 @@ class LiveSyntheticDataGenerator:
         return sample
 
     def reset(self):
-        self.leak_active        = False
-        self.leak_start_time    = None
-        self.last_leak_end_time = None
-        self.simulation_time    = datetime.now()
+        self.leak_active           = False
+        self.leak_start_time       = None
+        self.last_leak_end_time    = None
+        self.simulation_time       = datetime.now()
+        self._flow_dur_counter     = 0.0
         print("LiveSyntheticDataGenerator reset")

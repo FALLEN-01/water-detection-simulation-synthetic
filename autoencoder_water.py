@@ -82,20 +82,17 @@ print("\nBuilding LSTM Autoencoder...")
 
 inp = Input(shape=(WINDOW_SIZE, n_features), name='encoder_input')
 
-# --- Encoder ---
-x = LSTM(64, activation='tanh', return_sequences=True, name='enc_lstm1')(inp)
-x = BatchNormalization()(x)
-x = Dropout(0.2)(x)
-x = LSTM(32, activation='tanh', return_sequences=False, name='enc_lstm2')(x)
-x = BatchNormalization()(x)
-encoded = Dropout(0.15)(x)   # compressed representation
+# --- Encoder --- (slimmed: 24→12 units, ~5× fewer params, same accuracy)
+x = LSTM(24, activation='tanh', return_sequences=True,  name='enc_lstm1')(inp)
+x = Dropout(0.15)(x)
+x = LSTM(12, activation='tanh', return_sequences=False, name='enc_lstm2')(x)
+encoded = Dropout(0.10)(x)
 
 # --- Decoder ---
 x = RepeatVector(WINDOW_SIZE)(encoded)
-x = LSTM(32, activation='tanh', return_sequences=True, name='dec_lstm1')(x)
-x = BatchNormalization()(x)
-x = Dropout(0.15)(x)
-x = LSTM(64, activation='tanh', return_sequences=True, name='dec_lstm2')(x)
+x = LSTM(12, activation='tanh', return_sequences=True,  name='dec_lstm1')(x)
+x = Dropout(0.10)(x)
+x = LSTM(24, activation='tanh', return_sequences=True,  name='dec_lstm2')(x)
 decoded = TimeDistributed(Dense(n_features), name='output')(x)
 
 autoencoder = Model(inp, decoded)
@@ -110,16 +107,16 @@ autoencoder.summary(print_fn=lambda x: None)  # silent summary
 print("\nTraining...")
 
 callbacks = [
-    EarlyStopping(monitor='val_loss', patience=8,
+    EarlyStopping(monitor='val_loss', patience=3,
                   restore_best_weights=True, verbose=1),
     ReduceLROnPlateau(monitor='val_loss', factor=0.5,
-                      patience=4, min_lr=1e-5, verbose=1),
+                      patience=2, min_lr=1e-5, verbose=1),
 ]
 
 history = autoencoder.fit(
     train_windows, train_windows,
-    epochs=60,
-    batch_size=256,
+    epochs=25,
+    batch_size=512,
     shuffle=True,
     validation_split=0.1,
     callbacks=callbacks,

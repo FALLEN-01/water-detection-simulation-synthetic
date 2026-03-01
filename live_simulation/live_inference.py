@@ -32,6 +32,11 @@ class LiveInferenceEngine:
         self.autoencoder_threshold = None
         self.isolation_forest      = None
 
+        # Adaptive threshold — calibrated live from IF-confirmed normal samples
+        self._normal_mse_buf   = []      # ring buffer of MSEs on normal ticks
+        self._adaptive_thr     = None    # set after 50 normal samples
+        self._WARMUP           = 50      # samples before adaptive thr activates
+
         self._load_models()
 
         print("LiveInferenceEngine ready:")
@@ -116,11 +121,15 @@ class LiveInferenceEngine:
                 win_in = win.reshape(1, self.window_size, features.shape[0])
                 recon = self.autoencoder.predict(win_in, verbose=0)
                 mse = float(np.mean(np.square(win - recon[0])))
-                is_anomaly = int(mse > self.autoencoder_threshold)
+
+                # Adaptive threshold: use IF-confirmed normal ticks as baseline
+                # (calibrated live so we don't rely on possibly too-high saved thr)
+                eff_thr = self._adaptive_thr or self.autoencoder_threshold
+                is_anomaly = int(mse > eff_thr)
                 result['autoencoder'] = {
                     'prediction': is_anomaly,
                     'reconstruction_error': mse,
-                    'threshold': self.autoencoder_threshold,
+                    'threshold': eff_thr,
                 }
                 result['reconstruction_error'] = mse
             except Exception as e:
@@ -151,10 +160,28 @@ class LiveInferenceEngine:
             result['ensemble']   = int(sum(votes) > len(votes) / 2)
             result['confidence'] = float(sum(votes) / len(votes))
 
+        # Calibrate adaptive LSTM threshold using IF-normal ticks
+        if (result['isolation_forest'] is not None
+                and result['isolation_forest']['prediction'] == 0
+                and result['reconstruction_error'] > 0):
+            mse_val = result['reconstruction_error']
+            self._normal_mse_buf.append(mse_val)
+            if len(self._normal_mse_buf) > 200:
+                self._normal_mse_buf.pop(0)
+            if len(self._normal_mse_buf) >= self._WARMUP:
+                arr = np.array(self._normal_mse_buf)
+                new_thr = float(np.mean(arr) + 3.0 * np.std(arr))
+                if self._adaptive_thr is None:
+                    print(f"  Adaptive LSTM threshold set: {new_thr:.6f} "
+                          f"(saved was {self.autoencoder_threshold:.6f})")
+                self._adaptive_thr = new_thr
+
         return result
 
     def reset(self):
         self.window_buffer.clear()
+        self._normal_mse_buf.clear()
+        self._adaptive_thr = None
         print("LiveInferenceEngine reset")
 
 
