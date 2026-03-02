@@ -9,12 +9,12 @@ class HybridWaterAnomalyDetector:
                  flow_std,
                  ae_threshold,
                  window=60,
-                 rolling_window=60,
+                 rolling_window=20,
                  leak_threshold=0.4,
-                 persistence_minutes=60,
+                 persistence_minutes=20,
                  std_delta_threshold=0.3,
-                 w2=0.6,
-                 w3=0.4,
+                 w2=0.4,
+                 w3=0.6,
                  decision_threshold=0.7):
 
         # -------- ML --------
