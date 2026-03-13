@@ -5,210 +5,279 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Water Leak Detection</title>
-  <meta name="description" content="Real-time AI water leak detection — LSTM + Isolation Forest">
+  <meta name="description" content="Real-time AI water leak detection with LSTM Autoencoder and Isolation Forest">
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
     rel="stylesheet">
-  <!-- Three.js ESM importmap — required for Water + Sky addons -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-    }
-  }
-  </script>
-  <!-- Chart.js + date-fns adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script
     src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <!-- Socket.IO -->
-  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="/static/app.js"></script>
 </head>
 
 <body>
 
-  <!-- Three.js 3D water canvas -->
   <canvas id="bgCanvas"></canvas>
 
-  <!-- Single combined status badge -->
-  <div id="statusBadge" class="status-badge offline">
-    <span class="badge-dot"></span>
-    <span id="badgeTxt">OFFLINE</span>
+  <!-- Connection indicator -->
+  <div id="connStatus" class="conn-status offline">
+    <span class="conn-dot"></span>
+    <span class="conn-label">OFFLINE</span>
   </div>
 
-  <div class="app">
+  <div class="scene">
 
-    <!-- ===== TOP BAR ===== -->
-    <header class="topbar glass">
-      <div class="tb-brand">
-        <div class="brand-rings">
-          <div class="br br1"></div>
-          <div class="br br2"></div>
-          <div class="br br3"></div>
-          <span class="br-letter">W</span>
+    <!-- HEADER -->
+    <header class="hdr card-3d">
+      <div class="hdr-brand">
+        <div class="brand-mark">
+          <div class="brand-ring r1"></div>
+          <div class="brand-ring r2"></div>
+          <div class="brand-ring r3"></div>
+          <span class="brand-icon">W</span>
         </div>
-        <span class="tb-title">WATER LEAK DETECTION</span>
-      </div>
-
-      <!-- Inline live stats -->
-      <div class="tb-stats">
-        <div class="ts-item">
-          <span class="ts-lbl">FLOW</span>
-          <span id="valFlow" class="ts-val mono">--</span>
-          <span class="ts-unit">L/min</span>
-        </div>
-        <div class="ts-sep"></div>
-        <div class="ts-item">
-          <span class="ts-lbl">TURBIDITY</span>
-          <span id="valTurb" class="ts-val mono">--</span>
-          <span class="ts-unit">NTU</span>
-        </div>
-        <div class="ts-sep"></div>
-        <div class="ts-item">
-          <span class="ts-lbl">LSTM ERR</span>
-          <span id="valLstm" class="ts-val mono">--</span>
-        </div>
-        <div class="ts-sep"></div>
-        <div class="ts-item">
-          <span class="ts-lbl">CONFIDENCE</span>
-          <span id="valConf" class="ts-val mono">--</span>
-          <span class="ts-unit">%</span>
+        <div class="brand-text">
+          <div class="brand-name">HYBRID WATER LEAK DETECTION SYSTEM</div>
         </div>
       </div>
 
-      <div class="tb-right">
-        <div class="simclock">
-          <span class="sc-lbl">SIM TIME</span>
-          <span id="simTimeDisplay" class="sc-val mono">--:-- --/--</span>
+      <div class="hdr-center">
+        <div class="simclock-wrap">
+          <div class="simclock-label">SIM TIME</div>
+          <div id="simTimeDisplay" class="simclock-val">--:-- --/--</div>
         </div>
+      </div>
+
+      <div class="hdr-right">
+        <div id="systemStatus" class="system-status normal">
+          <div class="sys-rings">
+            <div class="sys-ring s1"></div>
+            <div class="sys-ring s2"></div>
+          </div>
+          <span id="systemStatusText">NORMAL</span>
+        </div>
+      </div>
     </header>
 
-    <!-- ===== MAIN AREA ===== -->
-    <div class="main">
-
-      <!-- LEFT SIDEBAR -->
-      <aside class="sidebar">
-
-        <!-- Controls -->
-        <div class="panel glass">
-          <div class="panel-lbl">SIMULATION</div>
-          <div class="sim-btns">
-            <button id="btnStart" class="sbtn sbtn-green sbtn-icon" onclick="startSimulation()"
-              title="Start">&#9654;</button>
-            <button id="btnPause" class="sbtn sbtn-amber sbtn-icon" onclick="pauseSimulation()" disabled
-              title="Pause">&#9646;&#9646;</button>
-            <button id="btnStop" class="sbtn sbtn-red   sbtn-icon" onclick="stopSimulation()" disabled
-              title="Stop">&#9632;</button>
-          </div>
-          <div class="sim-meta">
-            <span id="simStatusPill" class="spill spill-idle">IDLE</span>
-            <span id="elapsedTime" class="mono elapsed">00:00:00</span>
-          </div>
+    <!-- STAT CARDS -->
+    <div class="stat-grid">
+      <div class="stat-card card-3d" id="sc-flow">
+        <div class="stat-glow glow-blue"></div>
+        <div class="stat-top">
+          <div class="stat-label">FLOW RATE</div>
+          <div class="stat-unit">L/min</div>
         </div>
-
-        <!-- Speed -->
-        <div class="panel glass">
-          <div class="panel-lbl">FAST FORWARD</div>
-          <div class="speed-row">
-            <span id="speedVal" class="speed-num mono">1</span><span class="speed-x">×</span>
-          </div>
-          <input type="range" id="speedSlider" class="slider" min="1" max="120" value="1"
-            oninput="onSpeedChange(this.value)">
-
+        <div class="stat-val-wrap">
+          <span id="valFlow" class="stat-big">--</span>
         </div>
-
-        <!-- AI Predictions -->
-        <div class="panel glass">
-          <div class="panel-lbl">LEAK PREDICTIONS</div>
-          <div class="ai-rows">
-            <div class="ai-row">
-              <span class="ai-name">LSTM Autoencoder</span>
-              <span id="predAE" class="ai-badge bw">--</span>
-            </div>
-            <div class="ai-div"></div>
-            <div class="ai-row">
-              <span class="ai-name">Isolation Forest</span>
-              <span id="predIF" class="ai-badge bw">--</span>
-            </div>
-            <div class="ai-div"></div>
-            <div class="ai-row ai-row-ens">
-              <span class="ai-name ai-ens-lbl">Ensemble</span>
-              <span id="predEN" class="ai-badge ai-badge-lg bw">--</span>
-            </div>
-          </div>
+        <div class="stat-bar-track">
+          <div id="barFlow" class="stat-bar-fill fill-blue"></div>
         </div>
-
-        <!-- Reconstruction Error mini-chart (below AI predictions) -->
-        <div class="panel glass" id="panel-recon">
-          <div class="panel-lbl">RECONSTRUCTION ERROR</div>
-          <div class="recon-mini">
-            <canvas id="cRecon"></canvas>
-          </div>
-        </div>
-
-      </aside>
-
-      <!-- CHARTS 2×2 -->
-      <div class="charts-grid">
-
-        <!-- 2x2: Flow + Turbidity -->
-        <div class="chart-card glass" id="cc-flow">
-          <div class="cc-hdr">
-            <span class="cc-title">Flow Rate</span>
-            <span class="cc-pill">L / min</span>
-          </div>
-          <div class="cc-body"><canvas id="cFlow"></canvas></div>
-        </div>
-
-        <div class="chart-card glass" id="cc-turb">
-          <div class="cc-hdr">
-            <span class="cc-title">Turbidity</span>
-            <span class="cc-pill">NTU</span>
-          </div>
-          <div class="cc-body"><canvas id="cTurb"></canvas></div>
-        </div>
-
-        <!-- 2x2: ECG anomaly monitors -->
-        <div class="chart-card glass" id="cc-ae">
-          <div class="cc-hdr">
-            <span class="cc-title">Autoencoder</span>
-            <div class="cc-leg">
-              <span class="leg-dot ecg-green"></span>Normal &nbsp;
-              <span class="leg-dot red"></span>Anomaly
-            </div>
-          </div>
-          <div class="cc-body"><canvas id="cAnomalyAE"></canvas></div>
-        </div>
-
-        <div class="chart-card glass" id="cc-if">
-          <div class="cc-hdr">
-            <span class="cc-title">Isolation Forest</span>
-            <div class="cc-leg">
-              <span class="leg-dot ecg-green"></span>Normal &nbsp;
-              <span class="leg-dot red"></span>Anomaly
-            </div>
-          </div>
-          <div class="cc-body"><canvas id="cAnomalyIF"></canvas></div>
-        </div>
-
+        <div class="stat-sub" id="subFlow">Primary detection signal</div>
       </div>
-    </div><!-- /main -->
 
-  </div><!-- /app -->
+      <div class="stat-card card-3d" id="sc-stat">
+        <div class="stat-glow glow-violet"></div>
+        <div class="stat-top">
+          <div class="stat-label">STATISTICAL DETECTOR</div>
+          <div class="stat-unit">CONF</div>
+        </div>
+        <div class="stat-val-wrap">
+          <span id="valStat" class="stat-big">--</span>
+        </div>
+        <div class="stat-bar-track">
+          <div id="barStat" class="stat-bar-fill fill-violet"></div>
+        </div>
+        <div class="stat-sub" id="subStat">Rolling mean persistence</div>
+      </div>
 
-  <!-- Alert -->
+      <div class="stat-card card-3d" id="sc-cnn">
+        <div class="stat-glow glow-cyan"></div>
+        <div class="stat-top">
+          <div class="stat-label">CNN RECONSTRUCTION ERROR</div>
+          <div class="stat-unit">MSE</div>
+        </div>
+        <div class="stat-val-wrap">
+          <span id="valCnn" class="stat-big mono">--</span>
+        </div>
+        <div class="stat-bar-track">
+          <div id="barCnn" class="stat-bar-fill fill-cyan"></div>
+        </div>
+        <div class="stat-sub">vs threshold: <span id="subThresh">--</span></div>
+      </div>
+
+      <div class="stat-card card-3d" id="sc-fusion">
+        <div class="stat-glow glow-green"></div>
+        <div class="stat-top">
+          <div class="stat-label">FUSION SCORE</div>
+          <div class="stat-unit">%</div>
+        </div>
+        <div class="stat-val-wrap">
+          <span id="valFusion" class="stat-big">--</span>
+        </div>
+        <div class="stat-bar-track">
+          <div id="barFusion" class="stat-bar-fill fill-green"></div>
+        </div>
+        <div class="stat-sub">Weighted ensemble decision</div>
+      </div>
+    </div>
+
+    <!-- CONTROLS + AI -->
+    <div class="ctrl-grid">
+
+      <!-- Simulation control -->
+      <div class="ctrl-card card-3d">
+        <div class="ctrl-section-label">SIMULATION CONTROL</div>
+        <div class="ctrl-btns">
+          <button id="btnStart" class="cbtn cbtn-green" onclick="startSimulation()">
+            <span class="cbtn-icon">&#9654;</span> START
+          </button>
+          <button id="btnPause" class="cbtn cbtn-amber" onclick="pauseSimulation()" disabled>
+            <span class="cbtn-icon">&#9646;&#9646;</span> PAUSE
+          </button>
+          <button id="btnStop" class="cbtn cbtn-red" onclick="stopSimulation()" disabled>
+            <span class="cbtn-icon">&#9632;</span> STOP
+          </button>
+        </div>
+        <div class="ctrl-row-meta">
+          <span id="simStatusPill" class="spill spill-idle">IDLE</span>
+          <span id="elapsedTime" class="elapsed mono">00:00:00</span>
+        </div>
+      </div>
+
+      <!-- Speed -->
+      <div class="ctrl-card card-3d">
+        <div class="ctrl-section-label">SIMULATION SPEED</div>
+        <div class="speed-display">
+          <span id="speedVal" class="speed-big mono">1</span>
+          <span class="speed-x">x</span>
+        </div>
+        <input type="range" id="speedSlider" class="slider" min="1" max="10" value="1" step="1"
+          oninput="onSpeedChange(this.value)">
+        <div class="speed-meta">
+          <span class="smeta-chip">1x = 1 sim min/sec</span>
+          <span class="smeta-chip">10x = 10 sim min/sec</span>
+        </div>
+      </div>
+
+      <!-- AI Ensemble -->
+      <div class="ctrl-card card-3d ai-card">
+        <div class="ctrl-section-label">HYBRID DETECTION ARCHITECTURE</div>
+        <div class="ai-grid">
+          <div class="ai-row">
+            <span class="ai-name">Statistical Sustained Leak Detector</span>
+            <span id="predStat" class="ai-badge badge-wait">--</span>
+          </div>
+          <div class="ai-sep"></div>
+          <div class="ai-row">
+            <span class="ai-name">CNN Autoencoder Detector</span>
+            <span id="predCNN" class="ai-badge badge-wait">--</span>
+          </div>
+          <div class="ai-sep"></div>
+          <div class="ai-row ai-ensemble">
+            <span class="ai-name">Fusion Decision</span>
+            <span id="predFusion" class="ai-badge ai-badge-ensemble badge-wait">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Leak Injection Panel -->
+      <div class="ctrl-card card-3d leak-card">
+        <div class="ctrl-section-label">LEAK INJECTION CONTROLS</div>
+        <div class="leak-controls">
+          <div class="leak-row">
+            <label class="leak-label">Intensity (L/min):</label>
+            <input type="range" id="leakIntensity" class="leak-slider" min="0.1" max="2.0" step="0.1" value="0.5">
+            <span id="leakIntensityVal" class="leak-val">0.5</span>
+          </div>
+          <div class="leak-row">
+            <label class="leak-label">Duration (min):</label>
+            <input type="range" id="leakDuration" class="leak-slider" min="5" max="180" step="5" value="60">
+            <span id="leakDurationVal" class="leak-val">60</span>
+          </div>
+          <div class="leak-row">
+            <label class="leak-label">Mode:</label>
+            <select id="leakMode" class="leak-select">
+              <option value="instant">Instant</option>
+              <option value="ramp">Ramp</option>
+            </select>
+          </div>
+          <div class="leak-row" id="rampRow" style="display: none;">
+            <label class="leak-label">Ramp Duration (min):</label>
+            <input type="range" id="leakRamp" class="leak-slider" min="1" max="30" step="1" value="5">
+            <span id="leakRampVal" class="leak-val">5</span>
+          </div>
+        </div>
+        <div class="leak-btns">
+          <button id="btnInjectLeak" class="cbtn cbtn-orange" onclick="injectLeak()">
+            <span class="cbtn-icon">💧</span> INJECT LEAK
+          </button>
+          <button id="btnStopLeak" class="cbtn cbtn-gray" onclick="stopLeak()" disabled>
+            <span class="cbtn-icon">🛑</span> STOP LEAK
+          </button>
+        </div>
+        <div class="leak-status">
+          <span id="leakStatusPill" class="spill spill-gray">INACTIVE</span>
+          <span id="leakRemaining" class="leak-time">--</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CHARTS -->
+    <div class="chart-grid">
+
+      <div class="chart-card card-3d">
+        <div class="chart-header">
+          <span class="chart-title">Flow Rate</span>
+          <div class="chart-pill">L / min</div>
+        </div>
+        <div class="chart-body"><canvas id="cFlow"></canvas></div>
+      </div>
+
+      <div class="chart-card card-3d">
+        <div class="chart-header">
+          <span class="chart-title">CNN Reconstruction Error</span>
+          <div class="chart-pill">MSE vs Threshold</div>
+        </div>
+        <div class="chart-body"><canvas id="cRecon"></canvas></div>
+      </div>
+
+      <div class="chart-card card-3d">
+        <div class="chart-header">
+          <span class="chart-title">Statistical Detector</span>
+          <div class="chart-pill">Rolling Stats</div>
+        </div>
+        <div class="chart-body"><canvas id="cStats"></canvas></div>
+      </div>
+
+      <div class="chart-card card-3d chart-wide">
+        <div class="chart-header">
+          <span class="chart-title">Anomaly Timeline</span>
+          <div class="chart-legends">
+            <span class="leg-item"><span class="leg-dot ld-blue"></span>Normal</span>
+            <span class="leg-item"><span class="leg-dot ld-red"></span>Leak Detected</span>
+          </div>
+        </div>
+        <div class="chart-body"><canvas id="cAnomaly"></canvas></div>
+      </div>
+
+    </div>
+
+  </div><!-- /scene -->
+
+  <!-- ALERT -->
   <div id="alertBox" class="alert-box hidden">
     <div class="alert-stripe"></div>
-    <div class="alert-body">
+    <div class="alert-content">
       <div class="alert-title">LEAK DETECTED</div>
-      <div id="alertMeta" class="alert-meta mono">--</div>
+      <div id="alertMeta" class="alert-meta">--</div>
     </div>
-    <button class="alert-close" onclick="closeAlert()">&#10005;</button>
+    <button class="alert-dismiss" onclick="closeAlert()">&#10005;</button>
   </div>
 
-  <script type="module" src="/static/app.js"></script>
 </body>
 
 </html>

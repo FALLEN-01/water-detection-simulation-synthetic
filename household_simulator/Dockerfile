@@ -1,5 +1,5 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Use TensorFlow image with Keras pre-built
+FROM tensorflow/tensorflow:latest
 
 # Set working directory
 WORKDIR /app
@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements file
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies (TensorFlow/Keras already included in image)
+RUN pip install --upgrade --ignore-installed --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY all_appliances.json .

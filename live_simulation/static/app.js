@@ -1,467 +1,187 @@
-// Three.js ESM imports (resolved via importmap in index.html)
-import * as THREE from 'three';
-import { Water } from 'three/addons/objects/Water.js';
-import { Sky } from 'three/addons/objects/Sky.js';
-
 /**
- * Water Leak Detection — Dashboard JS
- * Three.js Water + Sky (realistic) + Chart.js + Socket.IO
+ * AquaGuard — Live Dashboard JS
+ * Handles simulation, charts, stat cards, speed, animations
  */
 
-let socket = null;
 let charts = {};
 let simStart = null;
 let timerInt = null;
 let lastLeak = false;
-let maxReconErr = 0.001;
+let leakStartTime = null;
 
-const MAX_PTS = 300;
-const bufs = {
-  flow: [],
-  turb: [],
-  recon: [],
-  ae: [], // { x, y: flowRate, a: 0|1 }
-  ifBuf: [], // same
-};
+const MAX_PTS = 600; // Increased buffer for smoother long-term visualization
+const bufs = { flow: [], recon: [], stats: [], normal: [], anomaly: [] };
+let socket = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-  initWave();
+  initBg();
   initCharts();
-  initSocket();
+  initSimulator();
 });
 
 // =============================================
-// Realistic Three.js Water + Sky
+// Simulator initialization
 // =============================================
-function initWave() {
-  const canvas = document.getElementById('bgCanvas');
+function initSimulator() {
+  // Initialize connection status as offline
+  setConn(false);
 
-  // Renderer
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.8;
+  // Initialize system status
+  setLeakState(false);
 
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(
-    60, window.innerWidth / window.innerHeight, 1, 20000
-  );
-  camera.position.set(30, 12, 80);
-  camera.lookAt(0, 0, 0);
+  // Set initial time display
+  document.getElementById('simTimeDisplay').textContent = '--:-- --/--';
 
-  // ── Physically-based Sky ────────────────────
-  const sky = new Sky();
-  sky.scale.setScalar(10000);
-  scene.add(sky);
+  // Initialize AI badges
+  ['predStat', 'predCNN', 'predFusion'].forEach(id => setBadge(id, null, id === 'predFusion'));
 
-  const skyUniforms = sky.material.uniforms;
-  skyUniforms['turbidity'].value = 10;
-  skyUniforms['rayleigh'].value = 2;
-  skyUniforms['mieCoefficient'].value = 0.005;
-  skyUniforms['mieDirectionalG'].value = 0.8;
+  // Initialize leak status
+  updateLeakStatus({ active: false });
 
-  // Sun position — late afternoon
-  const sun = new THREE.Vector3();
-  const phi = THREE.MathUtils.degToRad(80);   // elevation from zenith
-  const theta = THREE.MathUtils.degToRad(200);   // azimuth
-  sun.setFromSphericalCoords(1, phi, theta);
-  skyUniforms['sunPosition'].value.copy(sun);
-
-  // PMREM for IBL reflections on water
-  const pmremGenerator = new THREE.PMREMGenerator(renderer);
-  const sceneEnv = new THREE.Scene();
-  sceneEnv.add(sky.clone());
-  const renderTarget = pmremGenerator.fromScene(sceneEnv);
-  scene.environment = renderTarget.texture;
-
-  // ── Realistic Water ──────────────────────────
-  // Normal map from Three.js examples CDN
-  const waterNormals = new THREE.TextureLoader().load(
-    'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/waternormals.jpg',
-    tex => { tex.wrapS = tex.wrapT = THREE.RepeatWrapping; }
-  );
-
-  const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
-  const water = new Water(waterGeometry, {
-    textureWidth: 512,
-    textureHeight: 512,
-    waterNormals,
-    sunDirection: sun.clone().normalize(),
-    sunColor: 0xffffff,
-    waterColor: 0x006994,
-    distortionScale: 4.5,
-    fog: false,
-  });
-  water.rotation.x = -Math.PI / 2;
-  scene.add(water);
-
-  // ── Fog for depth ───────────────────────────
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.0006);
-
-  // ── Resize ──────────────────────────────────
-  window.addEventListener('resize', () => {
-    const W = window.innerWidth, H = window.innerHeight;
-    renderer.setSize(W, H);
-    camera.aspect = W / H;
-    camera.updateProjectionMatrix();
-  });
-
-  // ── Animate ─────────────────────────────────
-  let t = 0;
-  function loop() {
-    t += 0.001;
-    // Gentle camera drift — feels like standing on a boat
-    camera.position.x = Math.sin(t * 0.4) * 15;
-    camera.position.y = 12 + Math.sin(t * 0.7) * 1.5;
-    camera.lookAt(0, 0, 0);
-    // Advance water shader time
-    water.material.uniforms['time'].value += 1.0 / 60.0;
-    renderer.render(scene, camera);
-    requestAnimationFrame(loop);
-  }
-  loop();
+  // Initialize socket connection to backend
+  initSocket();
 }
 
-// =============================================
-// Chart.js
-// =============================================
-function mkOpts(yMin = null, yMax = null) {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: {
-        type: 'time',
-        bounds: 'data',   // exact data range, no nice-boundary padding
-        offset: false,
-        time: {
-          displayFormats: {
-            millisecond: 'HH:mm:ss',
-            second: 'HH:mm:ss',
-            minute: 'HH:mm',
-            hour: 'HH:mm dd/MM',
-            day: 'dd/MM',
-          },
-          tooltipFormat: 'HH:mm dd/MM/yy',
-        },
-        grid: { color: 'rgba(2,132,199,0.08)' },
-        ticks: { color: '#64748b', maxTicksLimit: 5, maxRotation: 0, autoSkip: true },
-      },
-      y: {
-        min: yMin !== null ? yMin : undefined,
-        max: yMax !== null ? yMax : undefined,
-        grid: { color: 'rgba(2,132,199,0.08)' },
-        ticks: { color: '#64748b', maxTicksLimit: 4 },
-      },
-    },
-  };
-}
-
-function initCharts() {
-  charts.flow = new Chart(document.getElementById('cFlow'), {
-    type: 'line',
-    data: {
-      datasets: [{
-        data: [],
-        borderColor: '#0284c7', backgroundColor: 'rgba(2,132,199,0.08)',
-        borderWidth: 2, fill: true, tension: 0.4, pointRadius: 0
-      }]
-    },
-    options: mkOpts(0, 15),
-  });
-
-  charts.recon = new Chart(document.getElementById('cRecon'), {
-    type: 'line',
-    data: {
-      datasets: [
-        {
-          data: [], borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.12)',
-          borderWidth: 1.5, fill: true, tension: 0.3, pointRadius: 0
-        },
-        {
-          data: [], borderColor: '#d97706', borderWidth: 1.2,
-          borderDash: [4, 2], fill: false, pointRadius: 0, tension: 0
-        },
-      ]
-    },
-    options: {
-      animation: false, responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: { display: false, type: 'time' },   // sparkline — hide axis, still parse Date x-values
-        y: {
-          display: true,
-          grid: { display: false },
-          border: { display: false },
-          ticks: { color: '#94a3b8', maxTicksLimit: 2, font: { size: 9 } },
-        },
-      },
-    },
-  });
-
-  // Turbidity line chart
-  charts.turb = new Chart(document.getElementById('cTurb'), {
-    type: 'line',
-    data: {
-      datasets: [{
-        data: [],
-        borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.08)',
-        borderWidth: 1.8, fill: true, tension: 0.4, pointRadius: 0
-      }]
-    },
-    options: mkOpts(0, 4),
-  });
-
-  // ECG Monitor style: razor-thin line, tension=0 (sharp corners),
-  // phosphor green when normal, red when anomaly — exactly like cardiac ECG.
-  function ecgDataset() {
-    return {
-      data: [],
-      borderWidth: 1.2,
-      pointRadius: 0,
-      fill: false,
-      tension: 0,          // sharp ECG corners, no smoothing
-      borderColor: '#00ff88',
-      segment: {
-        borderColor: ctx =>
-          ctx.p1.raw?.a ? '#ff3d3d' : '#00ff88',
-      },
-    };
-  }
-
-  // ECG chart options — same axis style as flow/turbidity for visual consistency
-  function mkEcgOpts() {
-    return {
-      animation: false,
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: {
-          type: 'time',
-          bounds: 'data',
-          offset: false,
-          time: {
-            displayFormats: { minute: 'HH:mm', hour: 'HH:mm', second: 'HH:mm:ss' },
-            tooltipFormat: 'HH:mm dd/MM/yy',
-          },
-          grid: { color: 'rgba(2,132,199,0.08)' },
-          ticks: { color: '#64748b', maxTicksLimit: 4, maxRotation: 0 },
-        },
-        y: {
-          min: 0, max: 15,
-          grid: { color: 'rgba(2,132,199,0.08)' },
-          ticks: { color: '#64748b', maxTicksLimit: 3 },
-        },
-      },
-    };
-  }
-
-  charts.anomalyAE = new Chart(document.getElementById('cAnomalyAE'), {
-    type: 'line',
-    data: { datasets: [ecgDataset()] },
-    options: mkEcgOpts(),
-  });
-
-  charts.anomalyIF = new Chart(document.getElementById('cAnomalyIF'), {
-    type: 'line',
-    data: { datasets: [ecgDataset()] },
-    options: mkEcgOpts(),
-  });
-}
-
-function push(buf, pt) { buf.push(pt); if (buf.length > MAX_PTS) buf.shift(); }
-
-function updateCharts() {
-  if (bufs.flow.length === 0) return; // wait for data — prevents Chart.js defaulting to full-day x-range
-  charts.flow.data.datasets[0].data = bufs.flow;
-  charts.flow.update('none');
-
-  charts.turb.data.datasets[0].data = bufs.turb;
-  charts.turb.update('none');
-
-  charts.recon.data.datasets[0].data = bufs.recon;
-  charts.recon.data.datasets[1].data = bufs.recon.map(p => ({ x: p.x, y: p.threshold }));
-  if (bufs.recon.length > 0) {
-    const mx = Math.max(...bufs.recon.map(p => p.y), bufs.recon[0]?.threshold || 0) * 1.35;
-    if (mx > maxReconErr) { maxReconErr = mx; charts.recon.options.scales.y.max = mx; }
-  }
-  charts.recon.update('none');
-
-  // ECG charts — auto-scale x from data (no explicit min/max)
-  charts.anomalyAE.data.datasets[0].data = bufs.ae.slice();
-  charts.anomalyAE.update('none');
-
-  charts.anomalyIF.data.datasets[0].data = bufs.ifBuf.slice();
-  charts.anomalyIF.update('none');
-}
-
-// =============================================
-// Socket.IO
-// =============================================
 function initSocket() {
-  // io is a UMD global from the socket.io CDN script
-  socket = window.io.connect(window.location.origin);
+  if (typeof io === 'undefined') return console.warn('Socket.IO client not loaded');
+  socket = io.connect(window.location.origin);
+
   socket.on('connect', () => setConn(true));
   socket.on('disconnect', () => setConn(false));
-  socket.on('sensor_data', handleData);
-  socket.on('leak_alert', handleAlert);
-  socket.on('simulation_status', handleStatus);
-  socket.on('speed_changed', d => {
-    document.getElementById('speedVal').textContent = d.speed;
-    document.getElementById('speedSlider').value = d.speed;
+
+  socket.on('server_status', (d) => {
+    // optional server status messages
+    console.log('server_status', d);
+  });
+
+  socket.on('simulation_state', (d) => {
+    const state = d.state || d.status || 'idle';
+    const map = { running: 'running', paused: 'paused', stopped: 'stopped', resumed: 'running' };
+    const cls = map[state] || 'idle';
+    const pill = document.getElementById('simStatusPill');
+    pill.className = 'spill spill-' + cls;
+    pill.textContent = cls.toUpperCase();
+
+    const btnStart = document.getElementById('btnStart');
+    const btnPause = document.getElementById('btnPause');
+    const btnStop = document.getElementById('btnStop');
+
+    // toggle buttons based on state
+    if (state === 'running') {
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = 'Pause';
+      btnStop.disabled = false;
+    } else if (state === 'paused') {
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = 'Resume'; // Change to Resume when paused
+      btnStop.disabled = false;
+    } else {
+      btnStart.disabled = false;
+      btnPause.disabled = true;
+      btnPause.textContent = 'Pause'; // Reset to Pause when stopped
+      btnStop.disabled = true;
+    }
+  });
+
+  socket.on('speed_update', (d) => {
+    document.getElementById('speedVal').textContent = d.speed || d;
+    document.getElementById('speedSlider').value = d.speed || d;
+  });
+
+  socket.on('data_update', (msg) => {
+    // Backend returns: flow, anomaly, final_score, level2, level3
+    const det = {
+      statistical: {
+        anomaly: (msg.level2 && msg.level2.triggered) || false,
+        confidence: (msg.level2 && msg.level2.score) || 0
+      },
+      cnn: {
+        anomaly: (msg.level3 && msg.level3.triggered) || false,
+        error: (msg.level3 && msg.level3.reconstruction_error) || 0,
+        score: (msg.level3 && msg.level3.score) || 0
+      },
+      fusion: {
+        score: msg.final_score || 0,
+        anomaly: msg.anomaly || false
+      }
+    };
+
+    const payload = {
+      timestamp: Date.now(),
+      sim_time: msg.sim_time || '--:-- --/--',
+      sensor_data: { flow_rate: msg.flow || 0 },
+      detection: det,
+      leak_active: msg.anomaly || false
+    };
+
+    handleData(payload);
+
+    // Update leak status from data_update
+    if (msg.leak_active !== undefined) {
+      updateLeakStatus({
+        active: msg.leak_active,
+        mode: msg.leak_mode || 'instant',
+        intensity: msg.leak_intensity || 0,
+        leak_remaining: msg.leak_remaining || 0
+      });
+    }
+  });
+
+  socket.on('leak_status', (data) => {
+    updateLeakStatus(data);
   });
 }
 
 // =============================================
-// Data Handling
+// Connection status
 // =============================================
-function handleData(d) {
-  const ts = new Date(d.timestamp);
-  const s = d.sensor_data;
-  const p = d.predictions;
-  const isLeak = !!d.leak_active;
-
-  if (d.sim_time) document.getElementById('simTimeDisplay').textContent = d.sim_time;
-  if (isLeak !== lastLeak) { lastLeak = isLeak; setLeakState(isLeak); }
-
-  const recon = p.reconstruction_error || 0;
-  const conf = (p.confidence || 0) * 100;
-  const thresh = p.autoencoder?.threshold || 0;
-
-  document.getElementById('valFlow').textContent = s.flow_rate.toFixed(2);
-  document.getElementById('valTurb').textContent = s.turbidity.toFixed(2);
-  document.getElementById('valLstm').textContent = recon < 0.001 ? recon.toExponential(2) : recon.toFixed(5);
-  document.getElementById('valConf').textContent = conf.toFixed(0);
-
-  ['valFlow', 'valTurb', 'valLstm', 'valConf'].forEach(id => {
-    document.getElementById(id).classList.toggle('alert', isLeak);
-  });
-  document.querySelectorAll('.chart-card').forEach(el => {
-    el.classList.toggle('leak-border', isLeak);
-  });
-
-  setBadge('predAE', p.autoencoder?.prediction);
-  setBadge('predIF', p.isolation_forest?.prediction);
-  setBadge('predEN', p.ensemble, true);
-
-  push(bufs.flow, { x: ts, y: s.flow_rate });
-  push(bufs.turb, { x: ts, y: s.turbidity });
-  push(bufs.recon, { x: ts, y: recon, threshold: thresh });
-  // ECG heartbeat: store flow value + anomaly flag a
-  push(bufs.ae, { x: ts, y: s.flow_rate, a: p.autoencoder?.prediction === 1 ? 1 : 0 });
-  push(bufs.ifBuf, { x: ts, y: s.flow_rate, a: p.isolation_forest?.prediction === 1 ? 1 : 0 });
-
-  updateCharts();
-}
-
-function setBadge(id, pred, isLg = false) {
-  const el = document.getElementById(id);
-  const base = 'ai-badge' + (isLg ? ' ai-badge-lg' : '');
-  if (pred === null || pred === undefined) {
-    el.className = base + ' bw'; el.textContent = '--';
-  } else if (pred === 1) {
-    el.className = base + ' bleak'; el.textContent = 'LEAK';
-  } else {
-    el.className = base + ' bnorm'; el.textContent = 'NORMAL';
-  }
-}
-
-function setLeakState(isLeak) {
-  updateBadge(isLeak ? 'leak' : (_isConnected ? 'normal' : 'offline'));
-}
-
-let _isConnected = false;
 function setConn(ok) {
-  _isConnected = ok;
-  updateBadge(ok ? (lastLeak ? 'leak' : 'normal') : 'offline');
+  const el = document.getElementById('connStatus');
+  el.className = 'conn-status ' + (ok ? 'online' : 'offline');
+  el.querySelector('.conn-label').textContent = ok ? 'ONLINE' : 'OFFLINE';
 }
-
-function updateBadge(state) {
-  const el = document.getElementById('statusBadge');
-  const txt = document.getElementById('badgeTxt');
-  if (!el) return;
-  el.className = 'status-badge ' + state;
-  txt.textContent = state === 'offline' ? 'OFFLINE'
-    : state === 'leak' ? 'LEAK'
-      : 'NORMAL';
-}
-
-// =============================================
-// Alert
-// =============================================
-function handleAlert(d) {
-  const box = document.getElementById('alertBox');
-  const meta = document.getElementById('alertMeta');
-  meta.textContent = `${d.sim_time || ''} | CONF ${((d.confidence || 0) * 100).toFixed(1)}% | ERR ${(d.reconstruction_error || 0).toFixed(5)}`;
-  box.classList.remove('hidden');
-  clearTimeout(box._t);
-  box._t = setTimeout(closeAlert, 8000);
-}
-function closeAlert() { document.getElementById('alertBox').classList.add('hidden'); }
 
 // =============================================
 // Controls
 // =============================================
 function startSimulation() {
-  if (!socket) return;
-  socket.emit('start_simulation');
-  simStart = Date.now(); startTimer();
-  Object.keys(bufs).forEach(k => bufs[k] = []);
-  maxReconErr = 0.001;
-  lastLeak = false; setLeakState(false);
-  ['predAE', 'predIF'].forEach(id => setBadge(id, null));
-  setBadge('predEN', null, true);
-  document.getElementById('btnStart').disabled = true;
-  document.getElementById('btnPause').disabled = false;
-  document.getElementById('btnStop').disabled = false;
+  if (socket) {
+    socket.emit('start_simulation');
+    simStart = Date.now();
+    startTimer();
+  }
 }
 
 function pauseSimulation() {
-  if (!socket) return;
-  socket.emit('pause_simulation');
-  stopTimer();
-  const b = document.getElementById('btnPause');
-  b.textContent = '\u25ba';          // ▶ resume icon
-  b.title = 'Resume';
-  b.onclick = resumeSimulation;
-}
-
-function resumeSimulation() {
-  if (!socket) return;
-  socket.emit('resume_simulation');
-  startTimer();
-  const b = document.getElementById('btnPause');
-  b.textContent = '\u23f8';          // ⏸ pause icon
-  b.title = 'Pause';
-  b.onclick = pauseSimulation;
+  if (socket) {
+    const btnPause = document.getElementById('btnPause');
+    if (btnPause.textContent === 'Pause') {
+      socket.emit('pause_simulation');
+    } else if (btnPause.textContent === 'Resume') {
+      socket.emit('start_simulation'); // Resume by starting again
+    }
+  }
 }
 
 function stopSimulation() {
-  if (!socket) return;
-  socket.emit('stop_simulation');
-  stopTimer(); simStart = null;
-  document.getElementById('btnStart').disabled = false;
-  document.getElementById('btnPause').disabled = true;
-  document.getElementById('btnStop').disabled = true;
-  document.getElementById('elapsedTime').textContent = '00:00:00';
-  document.getElementById('simTimeDisplay').textContent = '--:-- --/--';
-  setLeakState(false);
-}
-
-function handleStatus(d) {
-  const pill = document.getElementById('simStatusPill');
-  const map = { started: 'running', paused: 'paused', stopped: 'stopped', resumed: 'running' };
-  const cls = map[d.status] || 'idle';
-  pill.className = 'spill spill-' + cls;
-  pill.textContent = cls.toUpperCase();
+  if (socket) {
+    socket.emit('stop_simulation');
+    simStart = null;
+    stopTimer();
+    document.getElementById('elapsedTime').textContent = '00:00:00';
+    // Reset leak status when simulation stops
+    updateLeakStatus({ active: false });
+  }
 }
 
 function onSpeedChange(v) {
-  document.getElementById('speedVal').textContent = v;
-  if (socket) socket.emit('set_speed', { speed: parseInt(v) });
+  const speed = parseInt(v);
+  const limitedSpeed = Math.min(10, Math.max(1, speed));
+  if (socket) socket.emit('set_speed', limitedSpeed);
+  document.getElementById('speedVal').textContent = limitedSpeed;
+  document.getElementById('speedSlider').value = limitedSpeed;
 }
 
 // =============================================
@@ -478,14 +198,436 @@ function startTimer() {
     document.getElementById('elapsedTime').textContent = `${h}:${m}:${s}`;
   }, 1000);
 }
-function stopTimer() { clearInterval(timerInt); timerInt = null; }
+
+function stopTimer() {
+  if (timerInt) {
+    clearInterval(timerInt);
+    timerInt = null;
+  }
+}
 
 // =============================================
-// Expose globals for HTML onclick handlers
-// (required because this file is type="module")
+// Data Handling
 // =============================================
-window.startSimulation = startSimulation;
-window.pauseSimulation = pauseSimulation;
-window.stopSimulation = stopSimulation;
-window.onSpeedChange = onSpeedChange;
-window.closeAlert = closeAlert;
+function handleData(d) {
+  const ts = new Date(d.timestamp);
+  const s = d.sensor_data;
+  const det = d.detection;
+  const isLeak = !!d.leak_active;
+
+  if (d.sim_time) document.getElementById('simTimeDisplay').textContent = d.sim_time;
+
+  // Check for leak state change - MUST check before updating lastLeak
+  if (isLeak !== lastLeak) {
+    if (isLeak) {
+      // New leak detected
+      leakStartTime = new Date();
+      handleAlert({
+        sim_time: d.sim_time,
+        fusion_score: det.fusion.score,
+        start_time: d.sim_time
+      });
+    } else {
+      // Leak cleared
+      leakStartTime = null;
+    }
+
+    // Only update lastLeak AFTER handling the transition
+    lastLeak = isLeak;
+    setLeakState(isLeak);
+  }
+
+  // Update stat cards
+  const statConf = (det.statistical.confidence || 0) * 100;
+  const cnnError = det.cnn.error || 0;
+  const fusionScore = (det.fusion.score || 0) * 100;
+
+  document.getElementById('valFlow').textContent = s.flow_rate.toFixed(2);
+  document.getElementById('valStat').textContent = statConf.toFixed(0);
+  document.getElementById('valCnn').textContent = cnnError < 0.001 ? cnnError.toExponential(2) : cnnError.toFixed(5);
+  document.getElementById('valFusion').textContent = fusionScore.toFixed(0);
+  document.getElementById('subThresh').textContent = '--'; // Backend handles threshold internally
+
+  // Update progress bars
+  bar('barFlow', s.flow_rate / 15 * 100);
+  bar('barStat', statConf);
+  bar('barCnn', (det.cnn.score || 0) * 100); // Use normalized score from backend
+  bar('barFusion', fusionScore);
+
+  // Update alert states
+  ['sc-flow', 'sc-stat', 'sc-cnn', 'sc-fusion'].forEach(id => {
+    document.getElementById(id).classList.toggle('alert-state', isLeak);
+  });
+  document.querySelectorAll('.chart-card').forEach(el => {
+    el.classList.toggle('leak-border', isLeak);
+  });
+
+  // Update AI badges
+  setBadge('predStat', det.statistical.anomaly ? 1 : 0);
+  setBadge('predCNN', det.cnn.anomaly ? 1 : 0);
+  setBadge('predFusion', det.fusion.anomaly ? 1 : 0, true);
+
+  // Update chart data
+  push(bufs.flow, { x: ts, y: s.flow_rate });
+  push(bufs.recon, { x: ts, y: cnnError });
+  push(bufs.stats, { x: ts, y: det.statistical.confidence || 0 });
+  const pt = { x: ts, y: s.flow_rate };
+  push(det.fusion.anomaly ? bufs.anomaly : bufs.normal, pt);
+
+  updateCharts(d.timestamp);
+}
+
+function bar(id, pct) {
+  document.getElementById(id).style.width = Math.min(100, Math.max(0, pct)) + '%';
+}
+
+function setBadge(id, pred, isEnsemble = false) {
+  const el = document.getElementById(id);
+  const base = 'ai-badge' + (isEnsemble ? ' ai-badge-ensemble' : '');
+  if (pred === null || pred === undefined) {
+    el.className = base + ' badge-wait'; el.textContent = '--';
+  } else if (pred === 1) {
+    el.className = base + ' badge-leak'; el.textContent = 'TRIGGERED';
+  } else {
+    el.className = base + ' badge-normal'; el.textContent = 'NORMAL';
+  }
+}
+
+function setLeakState(isLeak) {
+  const sys = document.getElementById('systemStatus');
+  const text = document.getElementById('systemStatusText');
+  sys.className = 'system-status ' + (isLeak ? 'leak' : 'normal');
+  text.textContent = isLeak ? 'LEAK DETECTED' : 'NORMAL';
+}
+
+// =============================================
+// Alert
+// =============================================
+function handleAlert(d) {
+  const box = document.getElementById('alertBox');
+  const meta = document.getElementById('alertMeta');
+  meta.textContent = `Started: ${d.start_time || d.sim_time} | Fusion Score: ${(d.fusion_score * 100).toFixed(1)}%`;
+  box.classList.remove('hidden');
+  clearTimeout(box._t);
+  box._t = setTimeout(closeAlert, 8000);
+}
+
+function closeAlert() {
+  document.getElementById('alertBox').classList.add('hidden');
+}
+
+// =============================================
+// Charts and Background
+// =============================================
+function initBg() {
+  // Initialize background animations if needed
+  // This can be extended for background visual effects
+}
+
+function initCharts() {
+  // Initialize Chart.js instances
+  const commonConfig = {
+    type: 'line',
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: {
+        intersect: false,
+        mode: 'index'
+      },
+      elements: {
+        point: {
+          radius: 0, // Hide points by default for smoother lines
+          hoverRadius: 4,
+          hitRadius: 10
+        },
+        line: {
+          tension: 0.2, // Increased curve for even smoother appearance
+          borderWidth: 2,
+          stepped: false
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: 'second',
+            displayFormats: {
+              second: 'HH:mm:ss'
+            },
+            tooltipFormat: 'HH:mm:ss'
+          },
+          ticks: {
+            maxTicksLimit: 8, // Limit number of x-axis labels to reduce clutter
+            autoSkip: true,
+            maxRotation: 0 // Keep labels horizontal for readability
+          },
+          title: {
+            display: true,
+            text: 'Time'
+          }
+        },
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Flow (L/min)'
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: true
+        },
+        decimation: {
+          enabled: true,
+          algorithm: 'lttb', // Largest-Triangle-Three-Buckets algorithm for smooth downsampling
+          samples: 250 // Downsample to 250 points for smooth rendering
+        }
+      }
+    }
+  };
+
+  // Flow Rate Chart (split into normal vs anomaly datasets for clear visual distinction)
+  // Note: This creates line discontinuities but provides clear anomaly highlighting
+  // For continuous lines with scriptable coloring, consider a single dataset approach
+  const flowCtx = document.getElementById('cFlow');
+  if (flowCtx) {
+    charts.flow = new Chart(flowCtx, {
+      ...commonConfig,
+      data: {
+        datasets: [
+          {
+            label: 'Normal Flow',
+            data: bufs.normal, // Reference buffer directly - no cloning
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            pointRadius: 0, // Override default for this dataset
+            pointHoverRadius: 4,
+            tension: 0.2, // Match global smooth setting
+            borderWidth: 2
+          },
+          {
+            label: 'Anomaly',
+            data: bufs.anomaly, // Reference buffer directly - no cloning
+            borderColor: 'rgb(255, 99, 132)',
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            pointRadius: 2, // Keep visible points for anomalies
+            pointHoverRadius: 6,
+            tension: 0.2, // Match global smooth setting
+            borderWidth: 2
+          }
+        ]
+      }
+    });
+  }
+
+  // CNN Reconstruction Error Chart
+  const reconCtx = document.getElementById('cRecon');
+  if (reconCtx) {
+    charts.recon = new Chart(reconCtx, {
+      ...commonConfig,
+      data: {
+        datasets: [
+          {
+            label: 'Reconstruction Error',
+            data: bufs.recon, // Reference buffer directly - no cloning
+            borderColor: 'rgb(153, 102, 255)',
+            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.2, // Match global smooth setting
+            borderWidth: 2
+          }
+        ]
+      },
+      options: {
+        ...commonConfig.options,
+        scales: {
+          ...commonConfig.options.scales,
+          y: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Reconstruction Error'
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Statistical Confidence Chart
+  const statsCtx = document.getElementById('cStats');
+  if (statsCtx) {
+    charts.stats = new Chart(statsCtx, {
+      ...commonConfig,
+      data: {
+        datasets: [
+          {
+            label: 'Statistical Confidence',
+            data: bufs.stats, // Reference buffer directly - no cloning
+            borderColor: 'rgb(255, 159, 64)',
+            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.2, // Match global smooth setting
+            borderWidth: 2
+          }
+        ]
+      },
+      options: {
+        ...commonConfig.options,
+        scales: {
+          ...commonConfig.options.scales,
+          y: {
+            beginAtZero: true,
+            max: 1,
+            title: {
+              display: true,
+              text: 'Confidence'
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Anomaly Timeline Chart (wider chart showing combined flow with anomaly indicators)
+  const anomalyCtx = document.getElementById('cAnomaly');
+  if (anomalyCtx) {
+    charts.anomaly = new Chart(anomalyCtx, {
+      ...commonConfig,
+      data: {
+        datasets: [
+          {
+            label: 'Flow Rate',
+            data: bufs.flow, // Reference buffer directly - no cloning
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2,
+            tension: 0.2 // Match global smooth setting
+          }
+        ]
+      }
+    });
+  }
+
+  console.log('Chart.js instances initialized:', Object.keys(charts));
+}
+
+function push(buffer, dataPoint) {
+  buffer.push(dataPoint);
+  if (buffer.length > MAX_PTS) {
+    buffer.shift();
+  }
+}
+
+function updateCharts(timestamp) {
+  // Update Chart.js instances - no need to clone buffers since they're referenced directly
+
+  if (charts.flow) {
+    charts.flow.update('none'); // 'none' mode for performance - no buffer cloning needed
+  }
+
+  if (charts.recon) {
+    charts.recon.update('none');
+  }
+
+  if (charts.stats) {
+    charts.stats.update('none');
+  }
+
+  if (charts.anomaly) {
+    charts.anomaly.update('none');
+  }
+}
+
+// =============================================
+// Leak Injection Controls
+// =============================================
+function injectLeak() {
+  if (!socket) return;
+
+  const intensity = parseFloat(document.getElementById('leakIntensity').value);
+  const duration = parseInt(document.getElementById('leakDuration').value);
+  const mode = document.getElementById('leakMode').value;
+  const rampMinutes = parseInt(document.getElementById('leakRamp').value);
+
+  socket.emit('inject_leak', {
+    intensity: intensity,
+    duration: duration,
+    mode: mode,
+    ramp_minutes: rampMinutes
+  });
+}
+
+function stopLeak() {
+  if (!socket) return;
+  socket.emit('stop_leak');
+}
+
+function updateLeakStatus(data) {
+  const statusPill = document.getElementById('leakStatusPill');
+  const btnInject = document.getElementById('btnInjectLeak');
+  const btnStop = document.getElementById('btnStopLeak');
+  const remaining = document.getElementById('leakRemaining');
+
+  if (data.active) {
+    statusPill.className = 'spill spill-orange';
+    statusPill.textContent = data.mode.toUpperCase();
+    btnInject.disabled = true;
+    btnStop.disabled = false;
+
+    // Update remaining time if provided
+    if (data.leak_remaining !== undefined) {
+      remaining.textContent = `${data.leak_remaining}min left`;
+    } else {
+      remaining.textContent = 'ACTIVE';
+    }
+  } else {
+    statusPill.className = 'spill spill-gray';
+    statusPill.textContent = 'INACTIVE';
+    btnInject.disabled = false;
+    btnStop.disabled = true;
+    remaining.textContent = '--';
+  }
+}
+
+// Initialize leak control handlers
+document.addEventListener('DOMContentLoaded', () => {
+  // Update leak intensity display
+  const intensitySlider = document.getElementById('leakIntensity');
+  const intensityVal = document.getElementById('leakIntensityVal');
+  intensitySlider.addEventListener('input', () => {
+    intensityVal.textContent = intensitySlider.value;
+  });
+
+  // Update leak duration display
+  const durationSlider = document.getElementById('leakDuration');
+  const durationVal = document.getElementById('leakDurationVal');
+  durationSlider.addEventListener('input', () => {
+    durationVal.textContent = durationSlider.value;
+  });
+
+  // Update ramp duration display
+  const rampSlider = document.getElementById('leakRamp');
+  const rampVal = document.getElementById('leakRampVal');
+  rampSlider.addEventListener('input', () => {
+    rampVal.textContent = rampSlider.value;
+  });
+
+  // Show/hide ramp controls based on mode
+  const modeSelect = document.getElementById('leakMode');
+  const rampRow = document.getElementById('rampRow');
+  modeSelect.addEventListener('change', () => {
+    if (modeSelect.value === 'ramp') {
+      rampRow.style.display = 'flex';
+    } else {
+      rampRow.style.display = 'none';
+    }
+  });
+});
