@@ -92,15 +92,16 @@ function initSocket() {
 
   socket.on('data_update', (msg) => {
     // Backend returns: flow, anomaly, final_score, level2, level3
+    // level2 = Isolation Forest, level3 = Autoencoder
     const det = {
-      statistical: {
-        anomaly: (msg.level2 && msg.level2.triggered) || false,
-        confidence: (msg.level2 && msg.level2.score) || 0
-      },
-      cnn: {
+      autoencoder: {
         anomaly: (msg.level3 && msg.level3.triggered) || false,
         error: (msg.level3 && msg.level3.reconstruction_error) || 0,
         score: (msg.level3 && msg.level3.score) || 0
+      },
+      isolation_forest: {
+        anomaly: (msg.level2 && msg.level2.triggered) || false,
+        confidence: (msg.level2 && msg.level2.score) || 0
       },
       fusion: {
         score: msg.final_score || 0,
@@ -238,20 +239,20 @@ function handleData(d) {
   }
 
   // Update stat cards
-  const statConf = (det.statistical.confidence || 0) * 100;
-  const cnnError = det.cnn.error || 0;
+  const ifScore = (det.isolation_forest.confidence || 0) * 100;
+  const aeError = det.autoencoder.error || 0;
   const fusionScore = (det.fusion.score || 0) * 100;
 
   document.getElementById('valFlow').textContent = s.flow_rate.toFixed(2);
-  document.getElementById('valStat').textContent = statConf.toFixed(0);
-  document.getElementById('valCnn').textContent = cnnError < 0.001 ? cnnError.toExponential(2) : cnnError.toFixed(5);
+  document.getElementById('valStat').textContent = ifScore.toFixed(0);
+  document.getElementById('valCnn').textContent = aeError < 0.001 ? aeError.toExponential(2) : aeError.toFixed(5);
   document.getElementById('valFusion').textContent = fusionScore.toFixed(0);
   document.getElementById('subThresh').textContent = '--'; // Backend handles threshold internally
 
   // Update progress bars
   bar('barFlow', s.flow_rate / 15 * 100);
-  bar('barStat', statConf);
-  bar('barCnn', (det.cnn.score || 0) * 100); // Use normalized score from backend
+  bar('barStat', ifScore);
+  bar('barCnn', (det.autoencoder.score || 0) * 100);
   bar('barFusion', fusionScore);
 
   // Update alert states
@@ -263,14 +264,14 @@ function handleData(d) {
   });
 
   // Update AI badges
-  setBadge('predStat', det.statistical.anomaly ? 1 : 0);
-  setBadge('predCNN', det.cnn.anomaly ? 1 : 0);
+  setBadge('predStat', det.isolation_forest.anomaly ? 1 : 0);
+  setBadge('predCNN', det.autoencoder.anomaly ? 1 : 0);
   setBadge('predFusion', det.fusion.anomaly ? 1 : 0, true);
 
   // Update chart data
   push(bufs.flow, { x: ts, y: s.flow_rate });
-  push(bufs.recon, { x: ts, y: cnnError });
-  push(bufs.stats, { x: ts, y: det.statistical.confidence || 0 });
+  push(bufs.recon, { x: ts, y: aeError });
+  push(bufs.stats, { x: ts, y: det.isolation_forest.confidence || 0 });
   const pt = { x: ts, y: s.flow_rate };
   push(det.fusion.anomaly ? bufs.anomaly : bufs.normal, pt);
 
@@ -423,7 +424,7 @@ function initCharts() {
     });
   }
 
-  // CNN Reconstruction Error Chart
+  // Autoencoder Reconstruction Error Chart
   const reconCtx = document.getElementById('cRecon');
   if (reconCtx) {
     charts.recon = new Chart(reconCtx, {
@@ -431,7 +432,7 @@ function initCharts() {
       data: {
         datasets: [
           {
-            label: 'Reconstruction Error',
+            label: 'Autoencoder MSE',
             data: bufs.recon, // Reference buffer directly - no cloning
             borderColor: 'rgb(153, 102, 255)',
             backgroundColor: 'rgba(153, 102, 255, 0.2)',
@@ -450,7 +451,7 @@ function initCharts() {
             beginAtZero: true,
             title: {
               display: true,
-              text: 'Reconstruction Error'
+              text: 'Reconstruction Error (MSE)'
             }
           }
         }
@@ -458,7 +459,7 @@ function initCharts() {
     });
   }
 
-  // Statistical Confidence Chart
+  // Isolation Forest Anomaly Score Chart
   const statsCtx = document.getElementById('cStats');
   if (statsCtx) {
     charts.stats = new Chart(statsCtx, {
@@ -466,7 +467,7 @@ function initCharts() {
       data: {
         datasets: [
           {
-            label: 'Statistical Confidence',
+            label: 'Isolation Forest Score',
             data: bufs.stats, // Reference buffer directly - no cloning
             borderColor: 'rgb(255, 159, 64)',
             backgroundColor: 'rgba(255, 159, 64, 0.2)',
@@ -486,7 +487,7 @@ function initCharts() {
             max: 1,
             title: {
               display: true,
-              text: 'Confidence'
+              text: 'Anomaly Score'
             }
           }
         }
