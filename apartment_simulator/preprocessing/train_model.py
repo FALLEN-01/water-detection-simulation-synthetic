@@ -315,10 +315,10 @@ def train_isolation_forest(X_train, y_train, X_test, y_test, baseline_stats):
             "inter_std", "flow_trend", "baseline_elev"
         ],
         # CUSUM — k sits at ~67th percentile of normal inter-appliance flow (median=2.39, std=1.39).
-        # Only the upper third of normal minutes cause accumulation; natural variance
-        # cannot reach h=15.0 without a sustained leak.
+        # Only the upper third of normal minutes cause accumulation; partial appliance
+        # resets prevent reaching h=8.0 without a real sustained leak.
         "cusum_k": 3.0,
-        "cusum_h": 15.0,
+        "cusum_h": 8.0,
         # Isolation Forest
         "if_threshold": float(opt_threshold),
         "if_score_scale": float(score_scale),

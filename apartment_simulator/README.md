@@ -222,7 +222,7 @@ reaching `h` without a real sustained leak.
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
 | `cusum_k` | 3.0 L/min | Reference level; ~67th pct of normal inter-appliance flow |
-| `cusum_h` | 15.0 | Accumulated slack to trigger; high enough to ignore normal variance |
+| `cusum_h` | 8.0 | Accumulated slack to trigger; high enough to ignore normal variance |
 | `appliance_flow_thresh` | 8.0 L/min | Flow above this = appliance event (not inter-appliance) |
 | `noise_floor` | 0.2 L/min | Treated as zero |
 
@@ -343,7 +343,7 @@ threshold changes.
   "feature_names": ["mnf","inter_mean","inter_frac","mean_flow","inter_std","flow_trend","baseline_elev"],
 
   "cusum_k": 3.0,
-  "cusum_h": 15.0,
+  "cusum_h": 8.0,
 
   "if_threshold": -0.02,
   "if_score_scale": 0.08,

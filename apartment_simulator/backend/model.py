@@ -26,7 +26,7 @@ DESIGN NOTES:
 
 CALIBRATION (loaded from artifacts/calibration_building.json at server startup):
     cusum_k                    = 3.0   (67th pct of normal inter-appliance flow)
-    cusum_h                    = 15.0
+    cusum_h                    = 8.0
     if_threshold               = -0.02 (aggressive; catches 2-5 L/min leaks)
     if_score_scale             = 0.08
     decision_threshold         = 0.40
@@ -52,7 +52,7 @@ class HybridWaterAnomalyDetector:
         if_scaler,
         # CUSUM — tuned to building inter-appliance baseline (~2.39 L/min)
         cusum_k=3.0,               # Must be above normal baseline; 3.0 = ~67th pct of normal inter-appliance flow
-        cusum_h=15.0,              # High enough that normal variance can't reach it without a real leak
+        cusum_h=8.0,               # High enough that normal variance can't reach it without a real leak
         noise_floor=0.2,
         # Isolation Forest
         if_threshold=-0.05,
@@ -81,7 +81,7 @@ class HybridWaterAnomalyDetector:
             cusum_k:                      CUSUM reference level.  MUST be above the normal
                                           inter-appliance baseline (~2.39 L/min) to prevent
                                           accumulation on clean data.  Default 2.6.
-            cusum_h:                      CUSUM trigger threshold (accumulated slack).  Default 15.0.
+            cusum_h:                      CUSUM trigger threshold (accumulated slack).  Default 8.0.
             noise_floor:                  Flow below this treated as zero (0.2 L/min)
             if_threshold:                 IF decision function cut-off.  Anomaly when raw score < this.
                                           Set aggressively close to 0 (-0.02) for 2–5 L/min detection.
