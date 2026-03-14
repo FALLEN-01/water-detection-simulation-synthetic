@@ -205,6 +205,12 @@ water-detection-simulation-synthetic/
 │   ├── frontend/                # Web dashboard
 │   ├── preprocessing/           # Training data pipeline
 │   ├── artifacts/               # Calibration & trained models
+│   ├── documentation/           # Detailed module documentation
+│   │   ├── 01_init.md
+│   │   ├── 02_live_simulator.md
+│   │   ├── 03_model.md
+│   │   ├── 04_server.md
+│   │   └── README.md
 │   ├── docker-compose.yml
 │   ├── Dockerfile
 │   ├── Dockerfile.training
@@ -220,7 +226,6 @@ water-detection-simulation-synthetic/
 │   └── dishwasher.json
 │
 ├── README.md                    # This file
-└── documentation/               # Additional guides
 ```
 
 ## How It Works
@@ -297,6 +302,19 @@ npm start  # or access via port 3000 after docker-compose up
 # - Test sensitivity to different leak sizes
 # - View per-apartment backtracking
 ```
+
+## Documentation
+
+### Apartment Simulator Backend Documentation
+Detailed technical documentation for the apartment simulator backend is available in:
+
+**[apartment_simulator/documentation/](apartment_simulator/documentation/README.md)**
+
+Includes:
+- `01_init.md` - Package initialization
+- `02_live_simulator.md` - Flow simulation architecture (50-apartment aggregation)
+- `03_model.md` - Hybrid CUSUM + Isolation Forest detector implementation
+- `04_server.md` - FastAPI + Socket.IO server architecture
 
 ## License
 
