@@ -424,6 +424,29 @@ Features: 5-6 (depending on turbidity availability)
 ```
 
 
+## Dataset Attribution
+
+This project uses realistic water consumption patterns from the **priors_india** dataset:
+
+- **Source:** [Placeholder: Repository link will be provided]
+- **Description:** Real-world water usage patterns from 617-day monitoring of multi-unit buildings in India
+- **Coverage:** Fixture types include shower, toilet, bidet, washbasin, kitchen faucet, washing machine, and dishwasher
+- **Standards:** Calibrated to MoHUA (Ministry of Housing and Urban Affairs) guidelines and BIS (Bureau of Indian Standards) specifications
+- **Usage:** All synthetic data generation uses these India-specific priors to ensure realistic domestic water consumption patterns
+
+### Priors Data Structure (`priors_india/`)
+
+Each fixture's prior contains:
+- Event frequency (events per day using Poisson distribution)
+- Timing patterns (hourly probability distributions)
+- Duration characteristics (normal or lognormal distributions with constraints)
+- Flow rate distributions (calibrated for Indian fixture types)
+- Shape profiles (trapezoid, pulsed, or step function)
+
+**Note:** We gratefully acknowledge the use of these real-world priors in generating our synthetic datasets.
+
+---
+
 ## License
 
 This is a simulation/demonstration project for educational purposes.
