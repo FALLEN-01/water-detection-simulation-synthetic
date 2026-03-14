@@ -1,153 +1,160 @@
 import numpy as np
-from collections import deque
 
 
 class HybridWaterAnomalyDetector:
-    def __init__(self,
-                 model,
-                 flow_mean,
-                 flow_std,
-                 ae_threshold,
-                 window=60,
-                 rolling_window=20,
-                 leak_threshold=0.4,
-                 persistence_minutes=20,
-                 std_delta_threshold=0.3,
-                 w2=0.4,
-                 w3=0.6,
-                 decision_threshold=0.7):
 
-        # -------- ML --------
-        self.model = model
-        self.flow_mean = flow_mean          # shape (2,)
-        self.flow_std = flow_std            # shape (2,)
-        self.ae_threshold = ae_threshold
-        self.window = window
+    def __init__(
+        self,
+        if_model,
+        if_scaler,
+        cusum_k=0.01,
+        cusum_h=2.0,
+        noise_floor=0.02,
+        if_threshold=-0.05,
+        if_score_scale=0.1,
+        appliance_flow_thresh=2.0,
+        clip_bound=10.0,
+        w2=0.4,
+        w3=0.6,
+        decision_threshold=0.65,
+    ):
 
-        # -------- Statistical --------
-        self.rolling_window = rolling_window
-        self.leak_threshold = leak_threshold
-        self.persistence_minutes = persistence_minutes
-        self.std_delta_threshold = std_delta_threshold
+        self.if_model = if_model
+        self.if_scaler = if_scaler
 
-        # -------- Fusion --------
+        self.cusum_k = cusum_k
+        self.cusum_h = cusum_h
+        self.noise_floor = noise_floor
+
+        self.if_threshold = if_threshold
+        self.if_score_scale = if_score_scale
+        self.clip_bound = clip_bound
+
+        self.appliance_flow_thresh = appliance_flow_thresh
+
         self.w2 = w2
         self.w3 = w3
         self.decision_threshold = decision_threshold
 
-        # -------- Buffers --------
-        self.buffer = deque(maxlen=window)
-        self.raw_flow_buffer = deque(maxlen=rolling_window)
-        self.delta_buffer = deque(maxlen=rolling_window)
+        self.cusum_s = 0.0
+        self._prev_appliance = False
 
-        self.prev_flow = None
-        self.consecutive_leak_count = 0
 
-    # ==========================================================
-    # UPDATE (LIVE STREAMING)
-    # ==========================================================
+    # ───────────────────────────────────────
+    # CUSUM
+    # ───────────────────────────────────────
 
-    def update(self, flow):
+    def _run_cusum(self, window):
 
-        # --------------------------------------------------
-        # Compute derivative
-        # --------------------------------------------------
-        if self.prev_flow is None:
-            delta = 0.0
-        else:
-            delta = flow - self.prev_flow
+        s = self.cusum_s
+        triggered = False
+        prev = self._prev_appliance
 
-        self.prev_flow = flow
+        for lpm in window:
 
-        # --------------------------------------------------
-        # Update statistical buffers
-        # --------------------------------------------------
-        self.raw_flow_buffer.append(flow)
-        self.delta_buffer.append(delta)
+            appliance = lpm >= self.appliance_flow_thresh
 
-        # --------------------------------------------------
-        # Level 2: Statistical Detection
-        # --------------------------------------------------
-        level2_score = 0.0
-        level2_triggered = False
+            # reset when appliance begins
+            if appliance and not prev:
+                s = 0.0
 
-        if len(self.raw_flow_buffer) == self.rolling_window:
+            if not appliance:
 
-            mean_val = np.mean(self.raw_flow_buffer)
-            std_delta = np.std(self.delta_buffer)
+                if lpm <= self.noise_floor:
+                    # decay during silence
+                    s *= 0.8
+                else:
+                    # accumulate unexplained flow
+                    delta = lpm - self.cusum_k
+                    s = max(0.0, s + delta)
 
-            if mean_val > self.leak_threshold and std_delta < self.std_delta_threshold:
+                if s >= self.cusum_h:
+                    triggered = True
 
-                self.consecutive_leak_count += 1
+            prev = appliance
 
-                if self.consecutive_leak_count >= self.persistence_minutes:
-                    level2_triggered = True
+        self.cusum_s = s
+        self._prev_appliance = prev
 
-                    level2_score = min(
-                        1.0,
-                        (mean_val / self.leak_threshold) *
-                        (1 - std_delta / self.std_delta_threshold)
-                    )
-            else:
-                self.consecutive_leak_count = 0
+        return s, triggered
 
-        # --------------------------------------------------
-        # Prepare ML 2-channel sample
-        # --------------------------------------------------
-        sample = np.array([flow, delta], dtype=np.float32)
-        sample_scaled = (sample - self.flow_mean) / self.flow_std
 
-        self.buffer.append(sample_scaled)
+    # ───────────────────────────────────────
+    # Feature extraction
+    # ───────────────────────────────────────
 
-        level3_score = 0.0
-        level3_triggered = False
-        reconstruction_error = 0.0
+    def _extract_features(self, window):
 
-        # --------------------------------------------------
-        # Level 3: CNN Autoencoder
-        # --------------------------------------------------
-        if len(self.buffer) == self.window:
+        # everything below appliance level is background
+        inter = window[window < self.appliance_flow_thresh]
+        nonzero = window[window > 0.0]
 
-            window_array = np.array(self.buffer, dtype=np.float32)
-            window_array = np.expand_dims(window_array, axis=0)
+        mnf = float(np.percentile(nonzero, 10)) if len(nonzero) > 0 else 0.0
 
-            reconstruction = self.model.predict(window_array, verbose=0)
+        inter_mean = float(inter.mean()) if len(inter) > 0 else 0.0
+        inter_frac = float((inter > 0.02).mean()) if len(inter) > 0 else 0.0
+        inter_std = float(inter.std()) if len(inter) > 0 else 0.0
 
-            reconstruction_error = np.mean(
-                (reconstruction - window_array) ** 2
-            )
+        mean_flow = float(window.mean())
 
-            level3_triggered = reconstruction_error > self.ae_threshold
-            level3_score = min(
-                1.0,
-                reconstruction_error / self.ae_threshold
-            )
+        raw = np.array(
+            [[mnf, inter_mean, inter_frac, mean_flow, inter_std]],
+            dtype=np.float32,
+        )
 
-        # --------------------------------------------------
-        # Fusion
-        # --------------------------------------------------
-        final_score = (self.w2 * level2_score) + (self.w3 * level3_score)
+        scaled = self.if_scaler.transform(raw)
+        clipped = np.clip(scaled, -self.clip_bound, self.clip_bound)
+
+        return clipped
+
+
+    # ───────────────────────────────────────
+    # Update
+    # ───────────────────────────────────────
+
+    def update(self, window):
+
+        window = np.asarray(window, dtype=np.float32)
+
+        # level2 CUSUM
+        s_final, cusum_triggered = self._run_cusum(window)
+
+        cusum_score = min(1.0, s_final / self.cusum_h)
+
+        # level3 Isolation Forest
+        features = self._extract_features(window)
+
+        raw_if_score = float(self.if_model.decision_function(features)[0])
+
+        if_triggered = raw_if_score < self.if_threshold
+
+        anomaly_distance = max(0.0, self.if_threshold - raw_if_score)
+
+        if_score = min(1.0, anomaly_distance / self.if_score_scale)
+
+        # fusion
+        final_score = self.w2 * cusum_score + self.w3 * if_score
+
         final_anomaly = final_score > self.decision_threshold
 
         return {
             "anomaly": bool(final_anomaly),
             "final_score": float(final_score),
-
             "level2": {
-                "triggered": bool(level2_triggered),
-                "score": float(level2_score)
+                "triggered": bool(cusum_triggered),
+                "score": float(cusum_score),
             },
-
             "level3": {
-                "triggered": bool(level3_triggered),
-                "score": float(level3_score),
-                "reconstruction_error": float(reconstruction_error)
-            }
+                "triggered": bool(if_triggered),
+                "score": float(if_score),
+                "reconstruction_error": float(raw_if_score),
+            },
         }
-        
+
+
+    # ───────────────────────────────────────
+
     def reset(self):
-        self.buffer.clear()
-        self.raw_flow_buffer.clear()
-        self.delta_buffer.clear()
-        self.prev_flow = None
-        self.consecutive_leak_count = 0
+
+        self.cusum_s = 0.0
+        self._prev_appliance = False

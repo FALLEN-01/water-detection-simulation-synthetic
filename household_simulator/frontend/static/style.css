@@ -482,7 +482,7 @@ body {
 /* ===== CONTROLS ===== */
 .ctrl-grid {
   display: grid;
-  grid-template-columns: auto auto auto 1fr;
+  grid-template-columns: auto auto 1fr;
   gap: 14px;
 }
 
@@ -546,16 +546,6 @@ body {
 .cbtn-red {
   background: var(--red);
   color: #fff;
-}
-
-.cbtn-orange {
-  background: linear-gradient(135deg, #ea580c, #fb923c);
-  color: #fff;
-}
-
-.cbtn-gray {
-  background: #4b5563;
-  color: var(--text-2);
 }
 
 .cbtn:not(:disabled):hover {
@@ -928,120 +918,6 @@ body {
   }
 }
 
-/* ===== LEAK INJECTION PANEL ===== */
-.leak-card {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05), rgba(245, 101, 101, 0.02));
-  border-color: rgba(239, 68, 68, 0.15);
-}
-
-.leak-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 16px;
-  position: relative;
-  z-index: 1;
-}
-
-.leak-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 32px;
-}
-
-.leak-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-2);
-  min-width: 90px;
-  text-align: right;
-}
-
-.leak-slider {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(239, 68, 68, 0.2);
-  outline: none;
-  appearance: none;
-  cursor: pointer;
-}
-
-.leak-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--red);
-  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.leak-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.6);
-}
-
-.leak-val {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--red);
-  min-width: 30px;
-  text-align: center;
-}
-
-.leak-select {
-  padding: 4px 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 10px;
-  font-family: 'Inter', sans-serif;
-  cursor: pointer;
-  outline: none;
-}
-
-.leak-select:focus {
-  border-color: var(--red);
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
-}
-
-.leak-btns {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  position: relative;
-  z-index: 1;
-}
-
-.leak-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  position: relative;
-  z-index: 1;
-}
-
-.leak-time {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--text-3);
-}
-
-.spill-orange {
-  background: linear-gradient(135deg, #ea580c, #fb923c);
-  color: #fff;
-}
-
-.spill-gray {
-  background: #4b5563;
-  color: var(--text-3);
-}
-
 /* ===== RESPONSIVE ===== */
 @media(max-width:1150px) {
   .stat-grid {
@@ -1074,4 +950,100 @@ body {
     flex-direction: column;
     gap: 12px;
   }
+}
+/* ===== LEAK INJECTION PANEL ===== */
+.leak-inject-card {
+  padding: 20px 22px;
+}
+
+.leak-inject-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 32px;
+  align-items: flex-end;
+  position: relative;
+  z-index: 1;
+}
+
+.leak-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.leak-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  letter-spacing: 1.5px;
+}
+
+.leak-unit {
+  font-weight: 400;
+  color: var(--text-3);
+  letter-spacing: 0;
+}
+
+.leak-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.leak-slider-row .slider {
+  flex: 1;
+}
+
+.leak-val {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--cyan);
+  min-width: 36px;
+  text-align: right;
+}
+
+.leak-mode-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.leak-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.leak-radio input[type="radio"] {
+  accent-color: var(--red);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.leak-radio-label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.leak-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.spill-leak-active {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red);
+  animation: leak-pill-pulse 1s ease infinite;
+}
+
+@keyframes leak-pill-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
 }

@@ -1,633 +1,497 @@
 /**
- * AquaGuard — Live Dashboard JS
- * Handles simulation, charts, stat cards, speed, animations
+ * Water Leak Detection — Live Dashboard
+ * Pure socket.io client. All data comes from the backend.
  */
 
-let charts = {};
-let simStart = null;
-let timerInt = null;
-let lastLeak = false;
-let leakStartTime = null;
+const socket = io()
 
-const MAX_PTS = 600; // Increased buffer for smoother long-term visualization
-const bufs = { flow: [], recon: [], stats: [], normal: [], anomaly: [] };
-let socket = null;
+// ─────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────
+
+let charts = {}
+let simStart = null
+let timerInt = null
+let lastLeak = false
+let currentSpeed = 1
+let simMinutes = 0          // tracks latest sim_minutes from server for x-axis
+
+const WINDOW_SIM_MINS = 120 // rolling window: last 120 sim-minutes shown on charts
+const MAX_PTS = 600
+
+const bufs = {
+  flow:    [],
+  cusum:   [],
+  ifscore: [],
+  normal:  [],
+  anomaly: []
+}
+
+// ─────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  initBg();
-  initCharts();
-  initSimulator();
-});
 
-// =============================================
-// Simulator initialization
-// =============================================
-function initSimulator() {
-  // Initialize connection status as offline
-  setConn(false);
+  initBg()
+  initCharts()
 
-  // Initialize system status
-  setLeakState(false);
+  setConn(false)
+  setLeakState(false)
 
-  // Set initial time display
-  document.getElementById('simTimeDisplay').textContent = '--:-- --/--';
+  ;['predStat','predCNN','predFusion'].forEach(id =>
+    setBadge(id, null, id === 'predFusion')
+  )
 
-  // Initialize AI badges
-  ['predStat', 'predCNN', 'predFusion'].forEach(id => setBadge(id, null, id === 'predFusion'));
+  initSocketListeners()
+  updateLeakUI(false)
+})
 
-  // Initialize leak status
-  updateLeakStatus({ active: false });
 
-  // Initialize socket connection to backend
-  initSocket();
+// ─────────────────────────────────────────
+// SOCKET
+// ─────────────────────────────────────────
+
+function initSocketListeners() {
+
+  socket.on('connect',    () => setConn(true))
+  socket.on('disconnect', () => setConn(false))
+
+  socket.on('data_update', handleDataUpdate)
+
+  socket.on('simulation_state', d => handleSimulationState(d.state))
+
+  socket.on('speed_update', d => {
+    currentSpeed = d.speed
+    document.getElementById('speedVal').textContent = currentSpeed
+  })
+
+  socket.on('leak_status', d => {
+    updateLeakUI(d.active)
+    setLeakState(d.active)
+  })
 }
 
-function initSocket() {
-  if (typeof io === 'undefined') return console.warn('Socket.IO client not loaded');
-  socket = io.connect(window.location.origin);
 
-  socket.on('connect', () => setConn(true));
-  socket.on('disconnect', () => setConn(false));
+// ─────────────────────────────────────────
+// SIMULATION CONTROLS
+// ─────────────────────────────────────────
 
-  socket.on('server_status', (d) => {
-    // optional server status messages
-    console.log('server_status', d);
-  });
+function startSimulation()  { socket.emit('start_simulation') }
+function pauseSimulation()  { socket.emit('pause_simulation') }
+function stopSimulation()   { socket.emit('stop_simulation') }
 
-  socket.on('simulation_state', (d) => {
-    const state = d.state || d.status || 'idle';
-    const map = { running: 'running', paused: 'paused', stopped: 'stopped', resumed: 'running' };
-    const cls = map[state] || 'idle';
-    const pill = document.getElementById('simStatusPill');
-    pill.className = 'spill spill-' + cls;
-    pill.textContent = cls.toUpperCase();
+let speedEmitTimer = null
 
-    const btnStart = document.getElementById('btnStart');
-    const btnPause = document.getElementById('btnPause');
-    const btnStop = document.getElementById('btnStop');
-
-    // toggle buttons based on state
-    if (state === 'running') {
-      btnStart.disabled = true;
-      btnPause.disabled = false;
-      btnPause.textContent = 'Pause';
-      btnStop.disabled = false;
-    } else if (state === 'paused') {
-      btnStart.disabled = true;
-      btnPause.disabled = false;
-      btnPause.textContent = 'Resume'; // Change to Resume when paused
-      btnStop.disabled = false;
-    } else {
-      btnStart.disabled = false;
-      btnPause.disabled = true;
-      btnPause.textContent = 'Pause'; // Reset to Pause when stopped
-      btnStop.disabled = true;
-    }
-  });
-
-  socket.on('speed_update', (d) => {
-    document.getElementById('speedVal').textContent = d.speed || d;
-    document.getElementById('speedSlider').value = d.speed || d;
-  });
-
-  socket.on('data_update', (msg) => {
-    // Backend returns: flow, anomaly, final_score, level2, level3
-    const det = {
-      statistical: {
-        anomaly: (msg.level2 && msg.level2.triggered) || false,
-        confidence: (msg.level2 && msg.level2.score) || 0
-      },
-      cnn: {
-        anomaly: (msg.level3 && msg.level3.triggered) || false,
-        error: (msg.level3 && msg.level3.reconstruction_error) || 0,
-        score: (msg.level3 && msg.level3.score) || 0
-      },
-      fusion: {
-        score: msg.final_score || 0,
-        anomaly: msg.anomaly || false
-      }
-    };
-
-    const payload = {
-      timestamp: Date.now(),
-      sim_time: msg.sim_time || '--:-- --/--',
-      sensor_data: { flow_rate: msg.flow || 0 },
-      detection: det,
-      leak_active: msg.anomaly || false
-    };
-
-    handleData(payload);
-
-    // Update leak status from data_update
-    if (msg.leak_active !== undefined) {
-      updateLeakStatus({
-        active: msg.leak_active,
-        mode: msg.leak_mode || 'instant',
-        intensity: msg.leak_intensity || 0,
-        leak_remaining: msg.leak_remaining || 0
-      });
-    }
-  });
-
-  socket.on('leak_status', (data) => {
-    updateLeakStatus(data);
-  });
+function onSpeedChange(val) {
+  const v = parseFloat(val)
+  currentSpeed = v
+  document.getElementById('speedVal').textContent = v
+  clearTimeout(speedEmitTimer)
+  speedEmitTimer = setTimeout(() => socket.emit('set_speed', v), 150)
 }
 
-// =============================================
-// Connection status
-// =============================================
-function setConn(ok) {
-  const el = document.getElementById('connStatus');
-  el.className = 'conn-status ' + (ok ? 'online' : 'offline');
-  el.querySelector('.conn-label').textContent = ok ? 'ONLINE' : 'OFFLINE';
-}
+function handleSimulationState(state) {
 
-// =============================================
-// Controls
-// =============================================
-function startSimulation() {
-  if (socket) {
-    socket.emit('start_simulation');
-    simStart = Date.now();
-    startTimer();
+  const pill     = document.getElementById('simStatusPill')
+  const startBtn = document.getElementById('btnStart')
+  const pauseBtn = document.getElementById('btnPause')
+  const stopBtn  = document.getElementById('btnStop')
+
+  if (state === 'running') {
+
+    startBtn.disabled = true
+    pauseBtn.disabled = false
+    stopBtn.disabled  = false
+    pill.className    = 'spill spill-running'
+    pill.textContent  = 'RUNNING'
+    startTimer()
+
+  } else if (state === 'paused') {
+
+    pauseBtn.disabled = true
+    startBtn.disabled = false
+    pill.className    = 'spill spill-paused'
+    pill.textContent  = 'PAUSED'
+    stopTimer()
+
+  } else if (state === 'stopped') {
+
+    startBtn.disabled = false
+    pauseBtn.disabled = true
+    stopBtn.disabled  = true
+    pill.className    = 'spill spill-idle'
+    pill.textContent  = 'IDLE'
+
+    stopTimer()
+    simStart    = null
+    simMinutes  = 0
+    document.getElementById('elapsedTime').textContent = '00:00:00'
+
+    resetCharts()
+    updateLeakUI(false)
+    setLeakState(false)
   }
 }
 
-function pauseSimulation() {
-  if (socket) {
-    const btnPause = document.getElementById('btnPause');
-    if (btnPause.textContent === 'Pause') {
-      socket.emit('pause_simulation');
-    } else if (btnPause.textContent === 'Resume') {
-      socket.emit('start_simulation'); // Resume by starting again
-    }
-  }
-}
 
-function stopSimulation() {
-  if (socket) {
-    socket.emit('stop_simulation');
-    simStart = null;
-    stopTimer();
-    document.getElementById('elapsedTime').textContent = '00:00:00';
-    // Reset leak status when simulation stops
-    updateLeakStatus({ active: false });
-  }
-}
+// ─────────────────────────────────────────
+// BACKGROUND
+// ─────────────────────────────────────────
 
-function onSpeedChange(v) {
-  const speed = parseInt(v);
-  const limitedSpeed = Math.min(10, Math.max(1, speed));
-  if (socket) socket.emit('set_speed', limitedSpeed);
-  document.getElementById('speedVal').textContent = limitedSpeed;
-  document.getElementById('speedSlider').value = limitedSpeed;
-}
-
-// =============================================
-// Timer
-// =============================================
-function startTimer() {
-  if (timerInt) return;
-  timerInt = setInterval(() => {
-    if (!simStart) return;
-    const e = Date.now() - simStart;
-    const h = String(Math.floor(e / 3600000)).padStart(2, '0');
-    const m = String(Math.floor((e % 3600000) / 60000)).padStart(2, '0');
-    const s = String(Math.floor((e % 60000) / 1000)).padStart(2, '0');
-    document.getElementById('elapsedTime').textContent = `${h}:${m}:${s}`;
-  }, 1000);
-}
-
-function stopTimer() {
-  if (timerInt) {
-    clearInterval(timerInt);
-    timerInt = null;
-  }
-}
-
-// =============================================
-// Data Handling
-// =============================================
-function handleData(d) {
-  const ts = new Date(d.timestamp);
-  const s = d.sensor_data;
-  const det = d.detection;
-  const isLeak = !!d.leak_active;
-
-  if (d.sim_time) document.getElementById('simTimeDisplay').textContent = d.sim_time;
-
-  // Check for leak state change - MUST check before updating lastLeak
-  if (isLeak !== lastLeak) { 
-    if (isLeak) {
-      // New leak detected
-      leakStartTime = new Date();
-      handleAlert({
-        sim_time: d.sim_time,
-        fusion_score: det.fusion.score,
-        start_time: d.sim_time
-      });
-    } else {
-      // Leak cleared
-      leakStartTime = null;
-    }
-    
-    // Only update lastLeak AFTER handling the transition
-    lastLeak = isLeak;
-    setLeakState(isLeak);
-  }
-
-  // Update stat cards
-  const statConf = (det.statistical.confidence || 0) * 100;
-  const cnnError = det.cnn.error || 0;
-  const fusionScore = (det.fusion.score || 0) * 100;
-
-  document.getElementById('valFlow').textContent = s.flow_rate.toFixed(2);
-  document.getElementById('valStat').textContent = statConf.toFixed(0);
-  document.getElementById('valCnn').textContent = cnnError < 0.001 ? cnnError.toExponential(2) : cnnError.toFixed(5);
-  document.getElementById('valFusion').textContent = fusionScore.toFixed(0);
-  document.getElementById('subThresh').textContent = '--'; // Backend handles threshold internally
-
-  // Update progress bars
-  bar('barFlow', s.flow_rate / 15 * 100);
-  bar('barStat', statConf);
-  bar('barCnn', (det.cnn.score || 0) * 100); // Use normalized score from backend
-  bar('barFusion', fusionScore);
-
-  // Update alert states
-  ['sc-flow', 'sc-stat', 'sc-cnn', 'sc-fusion'].forEach(id => {
-    document.getElementById(id).classList.toggle('alert-state', isLeak);
-  });
-  document.querySelectorAll('.chart-card').forEach(el => {
-    el.classList.toggle('leak-border', isLeak);
-  });
-
-  // Update AI badges
-  setBadge('predStat', det.statistical.anomaly ? 1 : 0);
-  setBadge('predCNN', det.cnn.anomaly ? 1 : 0);
-  setBadge('predFusion', det.fusion.anomaly ? 1 : 0, true);
-
-  // Update chart data
-  push(bufs.flow, { x: ts, y: s.flow_rate });
-  push(bufs.recon, { x: ts, y: cnnError });
-  push(bufs.stats, { x: ts, y: det.statistical.confidence || 0 });
-  const pt = { x: ts, y: s.flow_rate };
-  push(det.fusion.anomaly ? bufs.anomaly : bufs.normal, pt);
-
-  updateCharts(d.timestamp);
-}
-
-function bar(id, pct) {
-  document.getElementById(id).style.width = Math.min(100, Math.max(0, pct)) + '%';
-}
-
-function setBadge(id, pred, isEnsemble = false) {
-  const el = document.getElementById(id);
-  const base = 'ai-badge' + (isEnsemble ? ' ai-badge-ensemble' : '');
-  if (pred === null || pred === undefined) {
-    el.className = base + ' badge-wait'; el.textContent = '--';
-  } else if (pred === 1) {
-    el.className = base + ' badge-leak'; el.textContent = 'TRIGGERED';
-  } else {
-    el.className = base + ' badge-normal'; el.textContent = 'NORMAL';
-  }
-}
-
-function setLeakState(isLeak) {
-  const sys = document.getElementById('systemStatus');
-  const text = document.getElementById('systemStatusText');
-  sys.className = 'system-status ' + (isLeak ? 'leak' : 'normal');
-  text.textContent = isLeak ? 'LEAK DETECTED' : 'NORMAL';
-}
-
-// =============================================
-// Alert
-// =============================================
-function handleAlert(d) {
-  const box = document.getElementById('alertBox');
-  const meta = document.getElementById('alertMeta');
-  meta.textContent = `Started: ${d.start_time || d.sim_time} | Fusion Score: ${(d.fusion_score * 100).toFixed(1)}%`;
-  box.classList.remove('hidden');
-  clearTimeout(box._t);
-  box._t = setTimeout(closeAlert, 8000);
-}
-
-function closeAlert() { 
-  document.getElementById('alertBox').classList.add('hidden'); 
-}
-
-// =============================================
-// Charts and Background
-// =============================================
 function initBg() {
-  // Initialize background animations if needed
-  // This can be extended for background visual effects
+
+  const cv = document.getElementById('bgCanvas')
+  if (!cv) return
+
+  const ctx = cv.getContext('2d')
+  let W, H
+
+  function resize() {
+    W = cv.width  = window.innerWidth
+    H = cv.height = window.innerHeight
+  }
+
+  window.addEventListener('resize', resize)
+  resize()
+
+  const pts = Array.from({ length: 60 }, () => ({
+    x:  Math.random() * W,
+    y:  Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.2,
+    vy: (Math.random() - 0.5) * 0.2,
+    r:  Math.random() * 1.2 + 0.3
+  }))
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H)
+    pts.forEach(p => {
+      p.x += p.vx; p.y += p.vy
+      if (p.x < 0) p.x = W; if (p.x > W) p.x = 0
+      if (p.y < 0) p.y = H; if (p.y > H) p.y = 0
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(14,165,233,0.2)'
+      ctx.fill()
+    })
+    requestAnimationFrame(draw)
+  }
+
+  draw()
+}
+
+
+// ─────────────────────────────────────────
+// CHARTS
+// ─────────────────────────────────────────
+
+function simMinLabel(v) {
+  const h = Math.floor(v / 60) % 24
+  const m = v % 60
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
+}
+
+function mkOpts(yMin = null, yMax = null) {
+  return {
+    responsive:          true,
+    maintainAspectRatio: false,
+    animation:           false,
+    plugins:             { legend: { display: false } },
+    scales: {
+      x: {
+        type: 'linear',
+        ticks: {
+          callback:     v => simMinLabel(v),
+          maxTicksLimit: 6,
+          color:        '#475569'
+        },
+        grid: { color: 'rgba(255,255,255,0.04)' }
+      },
+      y: { min: yMin ?? undefined, max: yMax ?? undefined }
+    }
+  }
 }
 
 function initCharts() {
-  // Initialize Chart.js instances
-  const commonConfig = {
+
+  charts.flow = new Chart(document.getElementById('cFlow'), {
     type: 'line',
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      interaction: {
-        intersect: false,
-        mode: 'index'
-      },
-      elements: {
-        point: {
-          radius: 0, // Hide points by default for smoother lines
-          hoverRadius: 4,
-          hitRadius: 10
-        },
-        line: {
-          tension: 0.2, // Increased curve for even smoother appearance
-          borderWidth: 2,
-          stepped: false
-        }
-      },
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            unit: 'second',
-            displayFormats: {
-              second: 'HH:mm:ss'
-            },
-            tooltipFormat: 'HH:mm:ss'
-          },
-          ticks: {
-            maxTicksLimit: 8, // Limit number of x-axis labels to reduce clutter
-            autoSkip: true,
-            maxRotation: 0 // Keep labels horizontal for readability
-          },
-          title: {
-            display: true,
-            text: 'Time'
-          }
-        },
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Flow (L/min)'
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          display: true
-        },
-        decimation: {
-          enabled: true,
-          algorithm: 'lttb', // Largest-Triangle-Three-Buckets algorithm for smooth downsampling
-          samples: 250 // Downsample to 250 points for smooth rendering
-        }
-      }
-    }
-  };
+    data: { datasets: [{ data: [], borderColor: '#0ea5e9', fill: true, pointRadius: 0 }] },
+    options: mkOpts(0, 15)
+  })
 
-  // Flow Rate Chart (split into normal vs anomaly datasets for clear visual distinction)
-  // Note: This creates line discontinuities but provides clear anomaly highlighting
-  // For continuous lines with scriptable coloring, consider a single dataset approach
-  const flowCtx = document.getElementById('cFlow');
-  if (flowCtx) {
-    charts.flow = new Chart(flowCtx, {
-      ...commonConfig,
-      data: {
-        datasets: [
-          {
-            label: 'Normal Flow',
-            data: bufs.normal, // Reference buffer directly - no cloning
-            borderColor: 'rgb(75, 192, 192)',
-            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-            pointRadius: 0, // Override default for this dataset
-            pointHoverRadius: 4,
-            tension: 0.2, // Match global smooth setting
-            borderWidth: 2
-          },
-          {
-            label: 'Anomaly',
-            data: bufs.anomaly, // Reference buffer directly - no cloning
-            borderColor: 'rgb(255, 99, 132)',
-            backgroundColor: 'rgba(255, 99, 132, 0.2)',
-            pointRadius: 2, // Keep visible points for anomalies
-            pointHoverRadius: 6,
-            tension: 0.2, // Match global smooth setting
-            borderWidth: 2
-          }
-        ]
-      }
-    });
-  }
+  charts.recon = new Chart(document.getElementById('cRecon'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { data: [], borderColor: '#06b6d4', fill: true,  pointRadius: 0 },
+        { data: [], borderColor: '#f59e0b', borderDash: [5, 3], pointRadius: 0 }
+      ]
+    },
+    options: mkOpts()
+  })
 
-  // CNN Reconstruction Error Chart
-  const reconCtx = document.getElementById('cRecon');
-  if (reconCtx) {
-    charts.recon = new Chart(reconCtx, {
-      ...commonConfig,
-      data: {
-        datasets: [
-          {
-            label: 'Reconstruction Error',
-            data: bufs.recon, // Reference buffer directly - no cloning
-            borderColor: 'rgb(153, 102, 255)',
-            backgroundColor: 'rgba(153, 102, 255, 0.2)',
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            tension: 0.2, // Match global smooth setting
-            borderWidth: 2
-          }
-        ]
-      },
-      options: {
-        ...commonConfig.options,
-        scales: {
-          ...commonConfig.options.scales,
-          y: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: 'Reconstruction Error'
-            }
-          }
-        }
-      }
-    });
-  }
+  charts.stats = new Chart(document.getElementById('cStats'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { data: [], borderColor: '#8b5cf6', fill: true,  pointRadius: 0 },
+        { data: [], borderColor: '#ef4444', borderDash: [3, 3], pointRadius: 0 }
+      ]
+    },
+    options: mkOpts(0, 1)
+  })
 
-  // Statistical Confidence Chart
-  const statsCtx = document.getElementById('cStats');
-  if (statsCtx) {
-    charts.stats = new Chart(statsCtx, {
-      ...commonConfig,
-      data: {
-        datasets: [
-          {
-            label: 'Statistical Confidence',
-            data: bufs.stats, // Reference buffer directly - no cloning
-            borderColor: 'rgb(255, 159, 64)',
-            backgroundColor: 'rgba(255, 159, 64, 0.2)',
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            tension: 0.2, // Match global smooth setting
-            borderWidth: 2
-          }
-        ]
-      },
-      options: {
-        ...commonConfig.options,
-        scales: {
-          ...commonConfig.options.scales,
-          y: {
-            beginAtZero: true,
-            max: 1,
-            title: {
-              display: true,
-              text: 'Confidence'
-            }
-          }
-        }
-      }
-    });
-  }
-
-  // Anomaly Timeline Chart (wider chart showing combined flow with anomaly indicators)
-  const anomalyCtx = document.getElementById('cAnomaly');
-  if (anomalyCtx) {
-    charts.anomaly = new Chart(anomalyCtx, {
-      ...commonConfig,
-      data: {
-        datasets: [
-          {
-            label: 'Flow Rate',
-            data: bufs.flow, // Reference buffer directly - no cloning
-            borderColor: 'rgb(75, 192, 192)',
-            backgroundColor: 'rgba(75, 192, 192, 0.1)',
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            borderWidth: 2,
-            tension: 0.2 // Match global smooth setting
-          }
-        ]
-      }
-    });
-  }
-
-  console.log('Chart.js instances initialized:', Object.keys(charts));
+  charts.anomaly = new Chart(document.getElementById('cAnomaly'), {
+    type: 'scatter',
+    data: {
+      datasets: [
+        { data: [], backgroundColor: '#0ea5e9', pointRadius: 3 },
+        { data: [], backgroundColor: '#ef4444', pointRadius: 3 }
+      ]
+    },
+    options: mkOpts(0, 15)
+  })
 }
 
-function push(buffer, dataPoint) {
-  buffer.push(dataPoint);
-  if (buffer.length > MAX_PTS) {
-    buffer.shift();
+
+// ─────────────────────────────────────────
+// DATA HANDLER
+// ─────────────────────────────────────────
+
+function handleDataUpdate(d) {
+
+  // x-axis is sim_minutes — speed-independent, always evenly spaced
+  simMinutes = d.sim_minutes ?? simMinutes + 1
+
+  const flow        = d.flow ?? 0
+  const cusumScore  = d.level2?.score ?? 0
+  const ifRaw       = d.level3?.reconstruction_error ?? 0
+  const ifScore     = d.level3?.score ?? 0
+  const fusionScore = d.final_score ?? 0
+  const isLeak      = !!d.anomaly
+
+  if (d.sim_time) {
+    const el = document.getElementById('simTimeDisplay')
+    if (el) el.textContent = d.sim_time
   }
+
+  if(isLeak){
+    handleAlert(d)
+  }
+  setLeakState(isLeak)
+  lastLeak = isLeak
+
+  document.getElementById('valFlow').textContent   = flow.toFixed(2)
+  document.getElementById('valStat').textContent   = (cusumScore * 100).toFixed(0)
+  document.getElementById('valCnn').textContent    = ifRaw.toFixed(4)
+  document.getElementById('valFusion').textContent = (fusionScore * 100).toFixed(0)
+
+  bar('barFlow',   flow / 15 * 100)
+  bar('barStat',   cusumScore * 100)
+  bar('barCnn',    ifScore * 100)
+  bar('barFusion', fusionScore * 100)
+
+  setBadge('predStat',   d.level2?.triggered)
+  setBadge('predCNN',    d.level3?.triggered)
+  setBadge('predFusion', isLeak, true)
+
+  const x = simMinutes
+  push(bufs.flow,    { x, y: flow })
+  push(bufs.cusum,   { x, y: cusumScore })
+  push(bufs.ifscore, { x, y: ifRaw })
+  push(isLeak ? bufs.anomaly : bufs.normal, { x, y: flow })
+
+  updateCharts()
+
+  if (d.leak_active !== undefined) updateLeakUI(d.leak_active)
 }
 
-function updateCharts(timestamp) {
-  // Update Chart.js instances - no need to clone buffers since they're referenced directly
-  
-  if (charts.flow) {
-    charts.flow.update('none'); // 'none' mode for performance - no buffer cloning needed
-  }
 
-  if (charts.recon) {
-    charts.recon.update('none');
-  }
+// ─────────────────────────────────────────
+// CHART HELPERS
+// ─────────────────────────────────────────
 
-  if (charts.stats) {
-    charts.stats.update('none');
-  }
-
-  if (charts.anomaly) {
-    charts.anomaly.update('none');
-  }
+function push(buf, pt) {
+  buf.push(pt)
+  if (buf.length > MAX_PTS) buf.shift()
 }
 
-// =============================================
-// Leak Injection Controls
-// =============================================
+function updateCharts() {
+
+  const xMax  = simMinutes
+  const xMin  = Math.max(0, xMax - WINDOW_SIM_MINS)
+
+  function setW(ch) {
+    ch.options.scales.x.min = xMin
+    ch.options.scales.x.max = xMax
+  }
+
+  charts.flow.data.datasets[0].data = bufs.flow
+  setW(charts.flow)
+  charts.flow.update('none')
+
+  charts.recon.data.datasets[0].data = bufs.ifscore
+  charts.recon.data.datasets[1].data = bufs.ifscore.map(p => ({ x: p.x, y: 0 }))
+  setW(charts.recon)
+  charts.recon.update('none')
+
+  charts.stats.data.datasets[0].data = bufs.cusum
+  charts.stats.data.datasets[1].data = bufs.cusum.map(p => ({ x: p.x, y: 1 }))
+  setW(charts.stats)
+  charts.stats.update('none')
+
+  charts.anomaly.data.datasets[0].data = bufs.normal
+  charts.anomaly.data.datasets[1].data = bufs.anomaly
+  setW(charts.anomaly)
+  charts.anomaly.update('none')
+}
+
+function resetCharts() {
+  Object.values(bufs).forEach(b => b.length = 0)
+  Object.values(charts).forEach(c => {
+    c.data.datasets.forEach(ds => ds.data = [])
+    c.update()
+  })
+}
+
+
+// ─────────────────────────────────────────
+// LEAK SLIDER UI
+// ─────────────────────────────────────────
+
+function onLeakIntensityChange(v) {
+  document.getElementById('leakIntensityVal').textContent = parseFloat(v).toFixed(1)
+}
+
+function onLeakDurationChange(v) {
+  document.getElementById('leakDurationVal').textContent = parseInt(v)
+}
+
+function onLeakModeChange(mode) {
+  document.getElementById('rampRow').style.display = mode === 'ramp' ? 'block' : 'none'
+}
+
+function onLeakRampChange(v) {
+  document.getElementById('leakRampVal').textContent = parseInt(v)
+}
+
+
+// ─────────────────────────────────────────
+// LEAK CONTROLS
+// ─────────────────────────────────────────
+
 function injectLeak() {
-  if (!socket) return;
-
-  const intensity = parseFloat(document.getElementById('leakIntensity').value);
-  const duration = parseInt(document.getElementById('leakDuration').value);
-  const mode = document.getElementById('leakMode').value;
-  const rampMinutes = parseInt(document.getElementById('leakRamp').value);
-
-  socket.emit('inject_leak', {
-    intensity: intensity,
-    duration: duration,
-    mode: mode,
-    ramp_minutes: rampMinutes
-  });
+  const intensity    = parseFloat(document.getElementById('leakIntensity').value)
+  const duration     = parseInt(document.getElementById('leakDuration').value)
+  const mode         = document.querySelector('input[name="leakMode"]:checked').value
+  const ramp_minutes = parseInt(document.getElementById('leakRamp').value)
+  socket.emit('inject_leak', { intensity, duration, mode, ramp_minutes })
 }
 
 function stopLeak() {
-  if (!socket) return;
-  socket.emit('stop_leak');
+  socket.emit('stop_leak')
 }
 
-function updateLeakStatus(data) {
-  const statusPill = document.getElementById('leakStatusPill');
-  const btnInject = document.getElementById('btnInjectLeak');
-  const btnStop = document.getElementById('btnStopLeak');
-  const remaining = document.getElementById('leakRemaining');
+function updateLeakUI(active) {
 
-  if (data.active) {
-    statusPill.className = 'spill spill-orange';
-    statusPill.textContent = data.mode.toUpperCase();
-    btnInject.disabled = true;
-    btnStop.disabled = false;
-    
-    // Update remaining time if provided
-    if (data.leak_remaining !== undefined) {
-      remaining.textContent = `${data.leak_remaining}min left`;
-    } else {
-      remaining.textContent = 'ACTIVE';
-    }
+  const btnInject = document.getElementById('btnInjectLeak')
+  const btnStop   = document.getElementById('btnStopLeak')
+  const statusEl  = document.getElementById('leakStatusPill')
+
+  if (active) {
+    btnInject.disabled   = true
+    btnStop.disabled     = false
+    statusEl.className   = 'spill spill-leak-active'
+    statusEl.textContent = 'LEAK ACTIVE'
   } else {
-    statusPill.className = 'spill spill-gray';
-    statusPill.textContent = 'INACTIVE';
-    btnInject.disabled = false;
-    btnStop.disabled = true;
-    remaining.textContent = '--';
+    btnInject.disabled   = false
+    btnStop.disabled     = true
+    statusEl.className   = 'spill spill-idle'
+    statusEl.textContent = 'INACTIVE'
   }
 }
 
-// Initialize leak control handlers
-document.addEventListener('DOMContentLoaded', () => {
-  // Update leak intensity display
-  const intensitySlider = document.getElementById('leakIntensity');
-  const intensityVal = document.getElementById('leakIntensityVal');
-  intensitySlider.addEventListener('input', () => {
-    intensityVal.textContent = intensitySlider.value;
-  });
 
-  // Update leak duration display
-  const durationSlider = document.getElementById('leakDuration');
-  const durationVal = document.getElementById('leakDurationVal');
-  durationSlider.addEventListener('input', () => {
-    durationVal.textContent = durationSlider.value;
-  });
+// ─────────────────────────────────────────
+// UI HELPERS
+// ─────────────────────────────────────────
 
-  // Update ramp duration display
-  const rampSlider = document.getElementById('leakRamp');
-  const rampVal = document.getElementById('leakRampVal');
-  rampSlider.addEventListener('input', () => {
-    rampVal.textContent = rampSlider.value;
-  });
+function bar(id, pct) {
+  const el = document.getElementById(id)
+  if (el) el.style.width = Math.min(100, Math.max(0, pct)) + '%'
+}
 
-  // Show/hide ramp controls based on mode
-  const modeSelect = document.getElementById('leakMode');
-  const rampRow = document.getElementById('rampRow');
-  modeSelect.addEventListener('change', () => {
-    if (modeSelect.value === 'ramp') {
-      rampRow.style.display = 'flex';
-    } else {
-      rampRow.style.display = 'none';
-    }
-  });
-});
+function setBadge(id, pred, isEnsemble = false) {
+
+  const el = document.getElementById(id)
+  if (!el) return
+
+  const base = 'ai-badge' + (isEnsemble ? ' ai-badge-ensemble' : '')
+
+  if (pred === null || pred === undefined) {
+    el.className   = base + ' badge-wait'
+    el.textContent = '--'
+  } else if (pred) {
+    el.className   = base + ' badge-leak'
+    el.textContent = 'TRIGGERED'
+  } else {
+    el.className   = base + ' badge-normal'
+    el.textContent = 'NORMAL'
+  }
+}
+
+function setConn(ok) {
+  const el = document.getElementById('connStatus')
+  if (!el) return
+  el.className = 'conn-status ' + (ok ? 'online' : 'offline')
+  el.querySelector('.conn-label').textContent = ok ? 'ONLINE' : 'OFFLINE'
+}
+
+function setLeakState(isLeak) {
+  const sys  = document.getElementById('systemStatus')
+  const text = document.getElementById('systemStatusText')
+  if (!sys || !text) return
+  sys.className    = 'system-status ' + (isLeak ? 'leak' : 'normal')
+  text.textContent = isLeak ? 'LEAK DETECTED' : 'NORMAL'
+}
+
+
+// ─────────────────────────────────────────
+// ALERT
+// ─────────────────────────────────────────
+
+function handleAlert(d) {
+  const box  = document.getElementById('alertBox')
+  const meta = document.getElementById('alertMeta')
+  meta.textContent =
+    `Sim time: ${d.sim_time} | Score: ${(d.final_score * 100).toFixed(1)}% | Flow: ${d.flow.toFixed(2)}`
+  box.classList.remove('hidden')
+  clearTimeout(box._t)
+  box._t = setTimeout(closeAlert, 8000)
+}
+
+function closeAlert() {
+  document.getElementById('alertBox').classList.add('hidden')
+}
+
+
+// ─────────────────────────────────────────
+// TIMER
+// ─────────────────────────────────────────
+
+function startTimer() {
+  if (timerInt) return
+  if (!simStart) simStart = Date.now()
+  timerInt = setInterval(() => {
+    const e = Date.now() - simStart
+    const h = String(Math.floor(e / 3600000)).padStart(2, '0')
+    const m = String(Math.floor((e % 3600000) / 60000)).padStart(2, '0')
+    const s = String(Math.floor((e % 60000) / 1000)).padStart(2, '0')
+    document.getElementById('elapsedTime').textContent = `${h}:${m}:${s}`
+  }, 1000)
+}
+
+function stopTimer() {
+  if (timerInt) { clearInterval(timerInt); timerInt = null }
+}

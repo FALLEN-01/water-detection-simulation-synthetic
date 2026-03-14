@@ -8,8 +8,8 @@ SECONDS_PER_MIN = 60
 # Daily water budget (India, single-person well-served household)
 # Lower bound: BIS IS 1172 / MoHUA recommended minimum (135 LPCD)
 # Upper bound: comfortable urban usage above BIS norm
-DEFAULT_DAILY_MIN_L = 135
-DEFAULT_DAILY_MAX_L = 180
+DEFAULT_DAILY_MIN_L = 100
+DEFAULT_DAILY_MAX_L = 160
 
 
 class LiveWaterFlowGenerator:
