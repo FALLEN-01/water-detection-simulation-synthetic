@@ -109,7 +109,7 @@ Both simulators use the same hybrid approach:
 ```bash
 cd household_simulator
 docker-compose up --build
-# Visit: http://localhost:3000
+# Visit: http://localhost:8000
 ```
 
 ### Apartment Building Simulator
@@ -117,7 +117,7 @@ docker-compose up --build
 ```bash
 cd apartment_simulator
 docker-compose up --build
-# Visit: http://localhost:3000
+# Visit: http://localhost:5000
 ```
 
 ### Local Python
@@ -158,7 +158,6 @@ python apartment_simulator/backend/server.py
 - Configurable thresholds
 
 ### Data Calibration
-- **Source**: Real 617-day water usage data from India
 - **Standards**: MoHUA and BIS specifications  
 - **Fixtures**: Shower, toilet, bidet, washbasin, kitchen faucet, washing machine, dishwasher
 - **Household daily volume**: 100-160 L (calibrated for Indian usage)
@@ -174,11 +173,11 @@ python apartment_simulator/backend/server.py
 - **Decision threshold**: 0.65 (fusion score)
 
 ### Apartment Building Simulator Parameters
-- **CUSUM k**: 3.0 (67th percentile of normal inter-appliance flow)
+- **CUSUM k**: 3.0 (detection threshold)
 - **CUSUM h**: 8.0-15.0 (alarm threshold)
-- **IF threshold**: -0.02 (aggressive, catches 2-5 L/min leaks)
+- **IF threshold**: -0.02 (anomaly sensitivity)
 - **Persistence windows**: 4 (stricter false-positive guard)
-- **Decision threshold**: 0.40 (lower threshold for building-level detection)
+- **Decision threshold**: 0.40 (fusion score for building-level detection)
 
 ## Workspace Structure
 
@@ -266,27 +265,29 @@ water-detection-simulation-synthetic/
 
 ## Data Source & Calibration
 
-Both simulators generate synthetic water usage based on real-world patterns from India:
+Both simulators generate **synthetic water usage data** using realistic patterns from India:
 
-### Priors Dataset (WEUSEDTO Data)
+### Calibration Priors (WEUSEDTO Data)
 - **Source**: [WEUSEDTO-Data Repository](https://github.com/AnnaDiMauro/WEUSEDTO-Data)
-- **Duration**: 617 days of real-world multi-apartment building monitoring
-- **Coverage**: Shower, toilet, bidet, washbasin, kitchen faucet, washing machine, dishwasher
-- **Standards**: Calibrated to MoHUA and BIS specifications
+- **Source Duration**: 617 days of multi-apartment building monitoring (used to extract patterns)
+- **Usage**: Provides realistic appliance event patterns and flow rate distributions
+- **Fixtures**: Shower, toilet, bidet, washbasin, kitchen faucet, washing machine, dishwasher
 
-### Appliance Event Distributions
-Each fixture has realistic:
-- **Event frequency**: events/day (Poisson distribution)
-- **Timing patterns**: Hourly probability distributions (morning peaks, evening peaks, etc.)
-- **Duration**: Appliance-specific (fixed or lognormal)
-- **Flow rates**: Lognormal distributions calibrated for Indian fixtures
+### Synthetic Data Generation
+Each simulator generates minute-by-minute synthetic flow data using:
+- **Event frequency**: Poisson-distributed appliance events per day
+- **Timing patterns**: Realistic hourly distributions based on calibration priors
+- **Duration**: Appliance-specific durations (fixed or lognormal)
+- **Flow rates**: Lognormal distributions calibrated to Indian fixture characteristics
+- **Standards**: Patterns aligned with MoHUA and BIS specifications
 
 ## Running Tests
 
 ### Household Simulator Test
 ```bash
 cd household_simulator
-npm start  # or access via port 3000 after docker-compose up
+docker-compose up --build
+# Access dashboard at http://localhost:8000
 # Use web dashboard to:
 # - View real-time flow
 # - Inject manual leaks
@@ -296,7 +297,8 @@ npm start  # or access via port 3000 after docker-compose up
 ### Apartment Building Test
 ```bash
 cd apartment_simulator
-npm start  # or access via port 3000 after docker-compose up
+docker-compose up --build
+# Access dashboard at http://localhost:5000
 # Use web dashboard to:
 # - Monitor 50-apartment aggregated flow
 # - Test sensitivity to different leak sizes
