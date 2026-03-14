@@ -1,12 +1,13 @@
 version: '3.8'
 
 services:
+  # ── Runtime simulator ───────────────────────────────────────────────────────
   simulator:
     build: .
     ports:
       - "5000:5000"
     volumes:
-      - /models:/models:ro
+      - ./artifacts:/app/artifacts:ro   # Use host artifacts (updated after training)
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -16,3 +17,18 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # ── Training service ────────────────────────────────────────────────────────
+  # Run once to regenerate models:
+  #   docker-compose run --rm trainer
+  # Artifacts are written directly to ./artifacts/ on your host machine.
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.training
+    volumes:
+      - ./artifacts:/output            # Training artifacts → host artifacts/
+    environment:
+      - PYTHONUNBUFFERED=1
+    profiles:
+      - training                       # Only starts when explicitly requested

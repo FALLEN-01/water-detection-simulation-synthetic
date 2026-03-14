@@ -1,14 +1,16 @@
 {
-  "accuracy": 0.946558110819571,
-  "precision": 0.2644026682838084,
-  "recall": 0.7171052631578947,
-  "f1_score": 0.38635356668143556,
+  "accuracy": 0.9293100787158513,
+  "precision": 0.3654970760233918,
+  "recall": 0.07183908045977011,
+  "f1_score": 0.12007684918347743,
   "confusion_matrix": {
-    "TP": 436,
-    "FP": 1213,
-    "FN": 172,
-    "TN": 24095
+    "TP": 125,
+    "FP": 217,
+    "FN": 1615,
+    "TN": 23959
   },
-  "contamination": 0.05,
-  "n_estimators": 200
+  "contamination": 0.08056798888717394,
+  "n_estimators": 300,
+  "n_features": 7,
+  "optimal_threshold": -0.10041878980289683
 }

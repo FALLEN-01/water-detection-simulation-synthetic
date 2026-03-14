@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Dockerfile.training  —  Standalone training image for apartment simulator
+#
+# Usage:
+#   Build image:
+#     docker build -f Dockerfile.training -t apt-trainer .
+#
+#   Run training (artifacts written to ./artifacts/ on your host):
+#     # Linux / macOS / Git Bash:
+#     docker run --rm -v $(pwd)/artifacts:/output apt-trainer
+#     # Windows PowerShell:
+#     docker run --rm -v ${PWD}/artifacts:/output apt-trainer
+#     # Windows CMD:
+#     docker run --rm -v %cd%\artifacts:/output apt-trainer
+#
+#   Or use docker-compose:
+#     docker-compose run --rm trainer
+#
+# What it does:
+#   1. Installs dependencies
+#   2. Generates 6 months of synthetic building water flow data (normal + leaks)
+#   3. Trains Isolation Forest (7 features, v2)
+#   4. Writes 4 artifacts to /output (mounted from host ./artifacts):
+#        isolation_forest_building.pkl
+#        scaler_building.pkl
+#        calibration_building.json
+#        metrics_building.json
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code (backend needed for live_simulator import in generate_data.py)
+COPY backend/ ./backend/
+COPY preprocessing/ ./preprocessing/
+COPY artifacts/all_appliances.json ./artifacts/all_appliances.json
+
+# Output directory (host should mount a volume here)
+VOLUME ["/output"]
+
+# Environment: be verbose
+ENV PYTHONUNBUFFERED=1
+
+# Entrypoint: run full pipeline, then copy artifacts to /output
+CMD python preprocessing/main.py && \
+    echo "Copying artifacts to /output..." && \
+    cp preprocessing/artifacts/isolation_forest_building.pkl /output/ && \
+    cp preprocessing/artifacts/scaler_building.pkl /output/ && \
+    cp preprocessing/artifacts/calibration_building.json /output/ && \
+    cp preprocessing/artifacts/metrics_building.json /output/ && \
+    echo "Done. Artifacts written to mounted /output."

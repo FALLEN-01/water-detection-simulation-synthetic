@@ -152,15 +152,24 @@ generator = LiveApartmentBuildingDataGenerator(
 )
 
 print("Initializing hybrid anomaly detector...")
+# v2 calibration fields (backwards-compatible: falls back to v1 defaults)
 detector = HybridWaterAnomalyDetector(
     if_model=if_model,
     if_scaler=if_scaler,
-    cusum_k=cal.get("cusum_k", 0.5),
-    cusum_h=cal.get("cusum_h", 20.0),
+    cusum_k=cal.get("cusum_k", 0.3),
+    cusum_h=cal.get("cusum_h", 15.0),
     noise_floor=cal.get("noise_floor", 0.2),
     if_threshold=cal.get("if_threshold", -0.05),
     if_score_scale=cal.get("if_score_scale", 0.1),
     appliance_flow_thresh=cal.get("appliance_flow_thresh", 8.0),
+    # v2: baseline stats for baseline_elev feature
+    baseline_inter_mean_median=cal.get("baseline_inter_mean_median", 1.5),
+    baseline_inter_mean_std=cal.get("baseline_inter_mean_std", 0.8),
+    # v2: updated fusion weights
+    w2=cal.get("w_cusum", 0.35),
+    w3=cal.get("w_if", 0.65),
+    decision_threshold=cal.get("decision_threshold", 0.55),
+    persistence_windows=cal.get("persistence_windows", 2),
 )
 
 print("Setup complete!")
