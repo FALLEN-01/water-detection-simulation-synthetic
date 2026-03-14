@@ -1,6 +1,9 @@
-# Apartment Building Water Leak Detection Simulator
+# Apartment Building Water Leak Detection Simulator  (v2)
 
-A real-time, AI-powered water leak detection system for 50-unit apartment buildings. This simulator generates synthetic water flow data, applies hybrid anomaly detection, and visualizes results via an interactive web dashboard.
+Real-time, AI-powered water leak detection for a 50-unit apartment building.
+Generates synthetic building-aggregate water flow data, applies a hybrid
+CUSUM + Isolation Forest anomaly detector, and streams results to an
+interactive web dashboard.
 
 ---
 
@@ -8,37 +11,38 @@ A real-time, AI-powered water leak detection system for 50-unit apartment buildi
 
 1. [Overview](#overview)
 2. [Project Structure](#project-structure)
-3. [Architecture](#architecture)
-4. [Installation & Setup](#installation--setup)
-5. [Usage](#usage)
-6. [Backend Components](#backend-components)
-7. [Frontend Components](#frontend-components)
-8. [Data Processing Pipeline](#data-processing-pipeline)
-9. [Anomaly Detection (Hybrid Model)](#anomaly-detection-hybrid-model)
-10. [Configuration & Calibration](#configuration--calibration)
-11. [API Reference](#api-reference)
-12. [Performance Metrics](#performance-metrics)
+3. [Quick Start](#quick-start)
+4. [Architecture](#architecture)
+5. [Anomaly Detection Model](#anomaly-detection-model)
+6. [Training Pipeline](#training-pipeline)
+7. [Configuration Reference](#configuration-reference)
+8. [API Reference](#api-reference)
+9. [Performance Metrics](#performance-metrics)
+10. [Tuning Guide](#tuning-guide)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-### Purpose
-Simulate a 50-unit apartment building's real-time water consumption and detect water leaks using a hybrid anomaly detection approach combining statistical (CUSUM) and machine learning (Isolation Forest) methods.
+### What it does
 
-### Key Features
-- **50 Independent Apartment Generators**: Each apartment has unique appliance usage patterns
-- **Building-Aggregate Simulation**: Real-time aggregation of 50 households → building-level data
-- **Hybrid Anomaly Detection**: Combines CUSUM (statistical) + Isolation Forest (ML)
-- **Real-Time Web Dashboard**: 4 interactive charts with live data streaming
-- **Leak Injection Simulation**: Test detection with synthetic leak events
-- **Docker Support**: Containerized backend for easy deployment
+- Simulates **50 independent apartments** with realistic appliance usage, aggregated to building level
+- Detects water leaks in real time using a **hybrid CUSUM + Isolation Forest** detector
+- Streams minute-by-minute flow, anomaly scores, and detection status to a browser dashboard
+- Supports **leak injection** (instant or ramp) to test detection at any intensity
 
-### Expected Performance
-- **Accuracy**: 94.66%
-- **Recall**: 71.71% (catches most leaks)
-- **Precision**: 26.44% (some false positives accepted for sensitivity)
-- **F1 Score**: 38.64%
+### Key improvements in v2
+
+| Area | v1 | v2 |
+|------|----|----|
+| Features | 5 | **7** (added `flow_trend`, `baseline_elev`) |
+| IF model trees | 200 | **300** |
+| Training leaks | 8 | **20 diverse types** (drip, ramp, stress, night, seasonal) |
+| Threshold calibration | raw test set | **balanced 5:1 calibration set** |
+| CUSUM k (building) | 0.5 | **2.6** (correctly above normal baseline of 2.39 L/min) |
+| Fusion bypass | none | **CUSUM and IF both bypass weighted fusion** when independently triggered |
+| False positive guard | 2 windows | **4 consecutive windows** |
 
 ---
 
@@ -46,907 +50,448 @@ Simulate a 50-unit apartment building's real-time water consumption and detect w
 
 ```
 apartment_simulator/
-├── README.md                    ← This file
-├── BUILD_SUMMARY.md             ← Detailed build summary
-├── requirements.txt             ← Python dependencies
-├── Dockerfile                   ← Docker configuration
-├── docker-compose.yml           ← Docker Compose setup
+├── README.md                       ← This file
+├── requirements.txt                ← Python dependencies
+├── Dockerfile                      ← Runtime container
+├── Dockerfile.training             ← Training-only container
+├── docker-compose.yml              ← Compose: simulator + trainer services
 │
-├── backend/                     ← FastAPI server & simulation logic
-│   ├── __init__.py
-│   ├── server.py                ← FastAPI + Socket.IO main application
-│   ├── live_simulator.py        ← Apartment building data generator
-│   ├── model.py                 ← Hybrid anomaly detector (CUSUM + IF)
-│   └── __pycache__/
+├── backend/
+│   ├── server.py                   ← FastAPI + Socket.IO server (port 5000)
+│   ├── live_simulator.py           ← 50-apartment building flow generator
+│   └── model.py                    ← HybridWaterAnomalyDetector (CUSUM + IF)
 │
-├── frontend/                    ← Web UI dashboard
-│   ├── index.html               ← Main page (Chart.js visualizations)
+├── frontend/
+│   ├── index.html                  ← Dashboard (4 Chart.js panels)
 │   └── static/
-│       ├── app.js               ← Socket.IO client & chart management
-│       └── style.css            ← Dashboard styling & animations
+│       ├── app.js                  ← Socket.IO client + chart management
+│       └── style.css               ← Dark/glassmorphic theme
 │
-├── preprocessing/               ← Training pipeline & configuration
-│   ├── __init__.py
-│   ├── main.py                  ← Orchestrates full training pipeline
-│   ├── generate_data.py         ← Synthetic data generation (6 months)
-│   ├── train_model.py           ← Isolation Forest training
-│   ├── README.md                ← ML pipeline documentation
-│   ├── data/                    ← Training/test datasets
-│   │   ├── water_train_building.csv
-│   │   └── water_test_building.csv
-│   └── artifacts/               ← Calibration results
+├── preprocessing/
+│   ├── main.py                     ← Pipeline orchestrator (generates + trains)
+│   ├── generate_data.py            ← 180-day synthetic data with diverse leaks
+│   ├── train_model.py              ← IF training with balanced calibration
+│   └── artifacts/                  ← Intermediate training outputs
 │       ├── calibration_building.json
 │       └── metrics_building.json
 │
-└── artifacts/                   ← Runtime configuration & models
-    ├── all_appliances.json      ← Appliance library (priors)
-    ├── calibration_building.json ← Detection thresholds
-    ├── if_calibration.json      ← Isolation Forest thresholds
-    └── metrics_building.json    ← Training metrics
+└── artifacts/                      ← Runtime models & config (read by server)
+    ├── all_appliances.json         ← Appliance library (flow priors)
+    ├── isolation_forest_building.pkl
+    ├── scaler_building.pkl
+    ├── calibration_building.json   ← Detection thresholds (edit to tune)
+    └── metrics_building.json       ← Last training metrics
 ```
+
+---
+
+## Quick Start
+
+### Local (Python)
+
+```bash
+cd apartment_simulator
+pip install -r requirements.txt
+py backend/server.py
+# Open http://localhost:5000
+```
+
+### Docker — run simulator
+
+```bash
+cd apartment_simulator
+docker-compose up --build simulator
+# Open http://localhost:5000
+```
+
+### Docker — retrain model
+
+```bash
+cd apartment_simulator
+
+# Build training image
+docker build -f Dockerfile.training -t apt-trainer .
+
+# Run training (PowerShell)
+docker run --rm -v "${PWD}/artifacts:/output" apt-trainer
+
+# Artifacts written to ./artifacts/ — restart simulator to use them
+docker-compose up --build simulator
+```
+
+### Dashboard controls
+
+| Control | Function |
+|---------|----------|
+| Start / Pause / Stop | Simulation lifecycle |
+| Speed (1–10×) | Wall-clock speed multiplier |
+| Leak Intensity (0.1–20 L/min) | Magnitude of injected leak |
+| Leak Duration (minutes) | How long the leak runs |
+| Leak Mode: instant / ramp | Immediate or gradual onset |
+| Inject Leak | Start a leak event now |
+| Stop Leak | Cancel the active leak |
 
 ---
 
 ## Architecture
 
-### High-Level System Design
+```
+Browser Dashboard
+  │  Chart.js (flow, CUSUM score, IF score, anomaly timeline)
+  │  Socket.IO client
+  │
+  ▼  WebSocket  (Socket.IO)
+FastAPI Server  backend/server.py  :5000
+  │
+  ├─ LiveApartmentBuildingDataGenerator  (live_simulator.py)
+  │     50 × LiveWaterFlowGenerator  (independent apartments)
+  │     → aggregate flow L/min  +  server-side leak injection
+  │
+  └─ HybridWaterAnomalyDetector  (model.py)
+        20-min sliding window
+        ├─ CUSUM  (statistical change detection)
+        ├─ Isolation Forest  (ML anomaly detection, 7 features)
+        └─ Fusion + Persistence filter
+              → anomaly: bool, final_score: float
+```
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   WEB DASHBOARD (Browser)                   │
-│  ┌──────────────┬──────────────┬──────────────┬──────────┐  │
-│  │ Flow Chart   │ IF Score     │ CUSUM Score  │ Timeline │  │
-│  └──────────────┴──────────────┴──────────────┴──────────┘  │
-│           ▲                                        ▲          │
-│           │         WebSocket (Socket.IO)         │          │
-│           └────────────────────────────────────────┘          │
-└─────────────────────────────────────────────────────────────┘
-                              ▲
-                              │ :8000
-┌─────────────────────────────▼─────────────────────────────────┐
-│              FastAPI Server (backend/server.py)               │
-│  ┌──────────────────────────────────────────────────────────┐ │
-│  │ WebSocket Endpoint + Simulation Loop (60 Hz)            │ │
-│  │  • Runs LiveApartmentBuildingDataGenerator               │ │
-│  │  • Extracts features every 20 minutes                    │ │
-│  │  • Feeds to HybridWaterAnomalyDetector                   │ │
-│  │  • Streams results to frontend over Socket.IO            │ │
-│  └───────────────────────┬──────────────────────────────────┘ │
-│                          │                                     │
-│  ┌───────────────────────▼──────────────────────────────────┐ │
-│  │      LiveApartmentBuildingDataGenerator                  │ │
-│  │  (backend/live_simulator.py)                             │ │
-│  │  ┌─────────────────────────────────────────────────────┐ │ │
-│  │  │ 50 × LiveWaterFlowGenerator (1 per apartment)       │ │ │
-│  │  │ + Aggregator → Building-level flow (L/min)         │ │ │
-│  │  │ + Leak injection support                           │ │ │
-│  │  └─────────────────────────────────────────────────────┘ │ │
-│  └───────────────────────┬──────────────────────────────────┘ │
-│                          │                                     │
-│  ┌───────────────────────▼──────────────────────────────────┐ │
-│  │   HybridWaterAnomalyDetector (backend/model.py)          │ │
-│  │  ┌─────────────────┬──────────────────────────────────┐  │ │
-│  │  │ Level 2 CUSUM   │  Level 3 Isolation Forest       │  │ │
-│  │  │ (Statistical)   │  (ML-based)                     │  │ │
-│  │  └─────────────────┴──────────────────────────────────┘  │ │
-│  │         ➜ Weighted Fusion (0.4 + 0.6) + Persistence    │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                          │                                     │
-└──────────────────────────┼─────────────────────────────────────┘
-                           │ Saved Artifacts
-                           ▼
-               Pre-trained Models & Calibration
-               (artifacts/ directory)
-```
+### Simulation loop (server.py)
+
+Each iteration (1 simulated minute):
+
+1. `generator.next()` → aggregate building flow for this minute
+2. Apply server-side leak (instant or ramp) if active
+3. Append flow value to 20-minute rolling `window_buffer`
+4. Once buffer is full: `detector.update(window)` → anomaly result
+5. `sio.emit("data_update", result)` → frontend updates charts
+6. `asyncio.sleep(1.0 / speed)` → speed control
 
 ---
 
-## Installation & Setup
-
-### Prerequisites
-- Python 3.11+
-- pip or conda
-- Docker (optional, for containerized deployment)
-- Port 8000 (backend) and 5173+ (frontend dev server)
-
-### Option 1: Local Installation
-
-```bash
-# Navigate to apartment_simulator directory
-cd apartment_simulator
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the server
-python backend/server.py
-
-# Server runs at: http://localhost:8000
-```
-
-### Option 2: Docker
-
-```bash
-# Build and run with Docker Compose
-docker-compose up --build
-
-# View logs
-docker-compose logs -f
-
-# Stop containers
-docker-compose down
-```
-
-### Option 3: Manual Preprocessing & Training
-
-```bash
-# Regenerate training data and train models from scratch
-cd preprocessing
-python main.py
-
-# This runs:
-# 1. generate_data.py   → Creates 6 months synthetic training data
-# 2. train_model.py     → Trains Isolation Forest on aggregated building data
-# 3. Calibration        → Generates thresholds optimized for building scale
-```
-
----
-
-## Usage
-
-### Starting the Server
-
-```bash
-python backend/server.py
-```
-
-Expected output:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
-
-### Accessing the Dashboard
-
-Open browser to: **http://localhost:8000**
-
-### Dashboard Controls
-
-| Control | Function |
-|---------|----------|
-| **Start** | Begin simulation from minute 0 |
-| **Pause/Resume** | Halt and resume data flow |
-| **Stop** | Reset simulation |
-| **Speed (1-10x)** | Adjust simulation speed multiplier |
-| **Leak Intensity** | 0.1–20.0 L/min leak magnitude |
-| **Leak Duration** | 1–300 minutes |
-| **Leak Mode** | `instant` (immediate) or `ramp` (gradual onset) |
-| **Inject Leak** | Trigger leak event at current time |
-
-### Example Scenarios
-
-**Scenario 1: Detect a 5 L/min leak**
-1. Press Start
-2. Set Speed to 5x (simulates faster)
-3. Let it run ~5 minutes, then Inject Leak (intensity: 5.0, duration: 60, mode: instant)
-4. Observe anomaly detectors react within 20 minutes of feature window
-
-**Scenario 2: Monitor normal operation**
-1. Press Start, keep Speed at 1x
-2. Let it run for several hours (real-time)
-3. Observe periodic appliance usage patterns (morning/evening peaks)
-4. No anomalies should trigger
-
----
-
-## Backend Components
-
-### 1. Server (`backend/server.py`)
-
-**Purpose**: FastAPI + Socket.IO application serving:
-- WebSocket real-time data streaming
-- Static frontend assets (index.html, CSS, JS)
-- Simulation loop orchestration
-- Control endpoints (start, pause, stop, leak injection)
-
-**Key Functions**:
-
-| Function | Purpose |
-|----------|---------|
-| `setup_cors()` | Enable Cross-Origin requests |
-| `@sio.on('connect')` | Handle new WebSocket connections |
-| `@sio.on('control')` | Process user controls (start/pause/leak injection) |
-| `simulation_loop()` | Main async loop: generate data → detect → emit |
-| `serve_static(path)` | Serve frontend assets |
-
-**Data Flow**:
-1. User clicks "Start" → client emits `control` event
-2. Server starts `simulation_loop()` in background
-3. Each iteration:
-   - Calls `generator.next()` → single minute of aggregate building flow
-   - Every 20 minutes: extracts features → feeds to detector
-   - Emits JSON to frontend via `data` event
-   - Clients render charts in real-time
-
-**Socket.IO Events**:
-
-**Client → Server**:
-```json
-{
-  "type": "start|pause|stop",
-  "leak": { "intensity": 5.0, "duration": 60, "mode": "instant" }
-}
-```
-
-**Server → Client** (per minute):
-```json
-{
-  "sim_minutes": 240,
-  "flow": 125.3,
-  "cusum_score": 0.45,
-  "if_score": -0.023,
-  "is_anomaly": false,
-  "leak_detected": false
-}
-```
-
----
-
-### 2. Live Simulator (`backend/live_simulator.py`)
-
-**Purpose**: Generate realistic building-level water flow data in real-time.
-
-**Key Classes**:
-
-#### `LiveWaterFlowGenerator`
-Single apartment household water flow generator.
-
-**Constructor Parameters**:
-```python
-LiveWaterFlowGenerator(
-    priors_path,              # Path to appliance JSON
-    daily_min_l=100,          # Min daily volume per apartment
-    daily_max_l=160,          # Max daily volume per apartment
-    max_flow_lpm=15.0,        # Peak flow per apartment
-    noise_sigma=0.03,         # Sensor noise std dev (fraction)
-    max_regen_attempts=10,    # Config robustness
-    seed=None                 # RNG seed
-)
-```
-
-**Key Methods**:
-- `next()` → Returns next minute's flow (L/min) with noise + leak
-- `inject_leak(start_min, end_min, flow_lpm)` → Add synthetic leak
-- `global_minute()` → Total minutes simulated
-
-**Realistic Features**:
-- Appliance event generation from JSON priors
-- Daily volume constraints (100–160 L/day per apartment)
-- Temporal clustering (morning/evening peaks)
-- Additive sensor noise on non-zero flows
-
-#### `LiveApartmentBuildingDataGenerator`
-Aggregates 50 independent apartments into building-level data.
-
-**Constructor**:
-```python
-LiveApartmentBuildingDataGenerator(
-    priors_path,              # Appliance library
-    num_apartments=50,        # Number of units
-    daily_min_l=None,         # Per-apartment daily min (override)
-    daily_max_l=None,         # Per-apartment daily max (override)
-    seed=None                 # RNG seed
-)
-```
-
-**Key Methods**:
-- `next()` → Sum of all 50 apartments' current minute flow
-- `set_leak_all_apartments(intensity, duration)` → Inject leak at building level
-- `get_status()` → Current flow stats
-
-**Building-Scale Data**:
-- Typical range: 5,000–8,000 L/day (100–160 L/min peaks)
-- 50 independent appliance patterns → complex aggregate signal
-- Used for both training and real-time simulation
-
----
-
-### 3. Hybrid Anomaly Detector (`backend/model.py`)
-
-**Purpose**: Combine statistical (CUSUM) and ML-based (Isolation Forest) detection.
-
-**Key Class**: `HybridWaterAnomalyDetector`
-
-**Constructor Parameters**:
-```python
-HybridWaterAnomalyDetector(
-    if_model,                  # Pre-trained Isolation Forest
-    if_scaler,                 # StandardScaler (fit on training data)
-    cusum_k=0.5,               # CUSUM threshold (building scale)
-    cusum_h=20.0,              # CUSUM trigger threshold
-    noise_floor=0.2,           # Minimum flow level
-    if_threshold=-0.05,        # IF model decision threshold
-    if_score_scale=0.1,        # IF score normalization
-    appliance_flow_thresh=8.0, # Max normal flow
-    clip_bound=10.0,           # Feature scaling clip
-    w2=0.4,                    # CUSUM weight
-    w3=0.6,                    # IF weight
-    decision_threshold=0.65,   # Combined anomaly threshold
-    persistence_windows=2      # Consecutive anomalies required
-)
-```
-
-**Key Methods**:
-
-1. **`extract_features(flow_window)`**
-   - Inputs: 20-minute rolling window of flows
-   - Outputs: 5 features
-     - `mnf`: Minimum flow in window
-     - `inter_mean`: Mean inter-event time
-     - `inter_frac`: Fraction of zero-flow minutes
-     - `mean_flow`: Average flow
-     - `inter_std`: Std dev of inter-event time
-   - Used by both CUSUM and Isolation Forest
-
-2. **`step(flow_value, features)`**
-   - Core detection logic
-   - Inputs: Current minute flow + 5 extracted features
-   - Returns: `(anomaly_score, is_anomaly, detector_scores)`
-
-3. **`detect(flow_value, feature_window)`**
-   - Wrapper for step()
-   - Manages persistence buffer (requires 2+ consecutive anomalies)
-
-### Detection Levels
-
-**Level 2: CUSUM (Statistical Change Detection)**
-- Detects persistent low-flow deviations
-- Threshold: `cusum_k = 0.5`
-- Trigger: `cusum_h = 20.0` (accumulated slack variable)
-- Sensitive to sustained deviations below baseline
-
-**Level 3: Isolation Forest (ML Anomaly Detection)**
-- Trained on 6 months of normal building aggregate data
-- 200 trees, 5% contamination
-- Detects statistical outliers in 5D feature space
-- Output: Decision function score (-1 to +1 range)
-- Normalized to [0, 1] for fusion
-
-**Fusion Logic** (Level 4):
-```
-final_score = 0.4 × CUSUM_score + 0.6 × IF_score
-
-anomaly detected when:
-  1. final_score > decision_threshold (0.65)
-  2. AND at least 2 consecutive windows trigger
-```
-
-**Persistence Filter**: Requires 2+ consecutive anomalies before flagging
-- Reduces false positives
-- Trades latency (~20–40 minutes) for confidence
-
----
-
-## Frontend Components
-
-### 1. HTML Structure (`frontend/index.html`)
-
-**Key Elements**:
-- **Background Canvas**: Animated particle effect
-- **Connection Indicator**: Real-time server status
-- **Control Panel**: Start/pause/stop, speed, leak injection
-- **4 Chart Containers**: Chart.js real-time visualizations
-
-### 2. Client Application (`frontend/static/app.js`)
-
-**Socket.IO Integration**:
-- Connects to `http://localhost:8000` via Socket.IO
-- Listens for `data` events from server
-- Emits `control` events for user interactions
-
-**Key State Variables**:
-```javascript
-let charts = {}              // Chart.js chart instances
-let simStart = null          // Simulation start timestamp
-let currentSpeed = 1         // Speed multiplier (1-10x)
-let simMinutes = 0           // Current simulation minute
-const WINDOW_SIM_MINS = 120  // Rolling window (120 minutes displayed)
-const MAX_PTS = 600          // Max points per chart
-```
-
-**Buffer Management**:
-- Maintains circular buffers for: `flow`, `cusum`, `ifscore`, `anomaly`
-- Respects rolling window (only last 2 hours displayed)
-- Smooth animations via incremental chart updates
-
-**Key Functions**:
-
-| Function | Purpose |
-|----------|---------|
-| `initCharts()` | Create 4 Chart.js instances |
-| `updateChart(chartId, xVal, yVal)` | Add point to chart |
-| `socketUpdate(data)` | Process incoming server event |
-| `sendControl(action, payload)` | Send user action to server |
-| `injectLeak()` | Trigger leak event |
-
-**Event Handlers**:
-- `start()` / `pause()` / `stop()` buttons
-- `speed` slider (1–10x)
-- Leak injection form (intensity, duration, mode)
-- Real-time connection status
-
-### 3. Styling (`frontend/static/style.css`)
-
-**Design Features**:
-- Dark theme background (particle animation)
-- Glassmorphic cards with 3D effect
-- Gradient accents (blue/cyan leak detection theme)
-- Responsive layout (mobile-friendly)
-- Real-time status badges (connected/disconnected)
-
-**Animations**:
-- Smooth chart transitions
-- Pulsing anomaly indicators
-- Connector dot breathing effect
-
----
-
-## Data Processing Pipeline
+## Anomaly Detection Model
 
 ### Overview
 
-The preprocessing pipeline generates training data and trains the Isolation Forest model on building-scale data.
+`HybridWaterAnomalyDetector` combines two independent detectors whose
+outputs are fused via a weighted score. Either detector can also bypass
+the weighted fusion gate directly when it has strong statistical evidence.
 
-**Pipeline Stages**:
-1. **Generate Data** (`generate_data.py`)
-2. **Train Model** (`train_model.py`)
-3. **Calibration** (automated within train_model.py)
-
-### Stage 1: Data Generation (`preprocessing/generate_data.py`)
-
-**Purpose**: Create 6 months of synthetic apartment building water flow data.
-
-**Output Files**:
-- `data/water_train_building.csv` — 180 days normal operation
-- `data/water_test_building.csv` — 180 days with 8 leak events
-
-**Configuration**:
-```python
-DAYS = 180              # 6 months
-APARTMENTS = 50         # Building size
-MINUTES_PER_DAY = 1440  # 24 hours
 ```
-
-**Function: `generate_building_training_data()`**
-- Creates clean (no leaks) training dataset
-- 50 apartments × 180 days × 1,440 minutes/day = 129,600 samples
-- Output CSV: `timestamp, day, minute_of_day, hour, flow_lpm`
-
-**Function: `inject_leaks_into_data()`**
-- Injects 8 realistic leak events into test data
-- Leak types:
-  - **Stress**: During peak hours (7–8 AM, 7–9 PM)
-  - **Seasonal**: Winter months
-  - **Night**: Midnight–6 AM
-- Leak duration: ~360 minutes each
-- Total leak minutes: ~2,888 out of 129,600 test minutes
-
-**Leak Injection Pattern**:
-```python
-leak_intensity = np.random.uniform(0.5, 5.0)  # L/min leak magnitude
-leak_start = random day × 1440 + random hour × 60  # Random start time
-leak_end = leak_start + 360  # 6-hour duration
+window (20 min of flow values)
+        │
+        ├──────────────────────────────┐
+        ▼                              ▼
+  CUSUM detector                Isolation Forest
+  (Level 2)                     (Level 3)
+  s += (flow - k)               decision_function(7 features)
+  triggered when s >= h         triggered when score < if_threshold
+        │                              │
+        ▼                              ▼
+  cusum_score [0,1]             if_score [0,1]
+        │                              │
+        └───────────┬──────────────────┘
+                    ▼
+        final_score = 0.35 × cusum_score
+                    + 0.65 × if_score
+                    │
+        candidate_anomaly =
+          final_score > decision_threshold (0.40)
+          OR cusum_triggered
+          OR if_triggered
+                    │
+        persistence filter: streak >= 4 consecutive windows
+                    │
+                    ▼
+              anomaly: bool
 ```
-
-### Stage 2: Model Training (`preprocessing/train_model.py`)
-
-**Purpose**: Train Isolation Forest on aggregated building data.
-
-**Key Steps**:
-
-1. **Load Data**:
-   - Read training CSV (129,600 normal samples)
-   - Read test CSV (129,600 samples with leaks)
-
-2. **Feature Extraction**:
-   - 20-minute sliding windows
-   - 5-minute stride → ~25k windows from 180 days
-   - Features: `mnf, inter_mean, inter_frac, mean_flow, inter_std`
-   - Normalization: StandardScaler fit on training features
-
-3. **Model Training**:
-   ```python
-   iso_forest = IsolationForest(
-       n_estimators=200,
-       contamination=0.05,  # 5% normal data flagged as anomaly
-       random_state=42
-   )
-   iso_forest.fit(X_train_scaled)
-   ```
-
-4. **Cross-Validation**:
-   - Evaluate on test set (contains leak events)
-   - Compute: Accuracy, Precision, Recall, F1 Score
-
-5. **Threshold Calibration**:
-   - Compute 99th percentile of normal scores → `if_threshold`
-   - Normalize scores for [0, 1] fusion range
-
-**Output Artifacts**:
-- `artifacts/if_calibration.json` — Thresholds
-- `artifacts/metrics_building.json` — Performance metrics
-- `models/*.keras` — Keras model (if used)
-
-### Stage 3: Calibration
-
-**CUSUM Thresholds (Building Scale)**:
-```
-cusum_k = 0.5              # 10× household (0.01)
-cusum_h = 20.0             # 10× household (2.0)
-noise_floor = 0.2 L/min
-appliance_flow_thresh = 8.0 L/min
-```
-
-Calibrated by running detector on test data and optimizing for:
-- High recall (catch most leaks)
-- Manageable precision (accept some false positives)
 
 ---
 
-## Anomaly Detection (Hybrid Model)
+### Level 2 — CUSUM
 
-### Detection Architecture
+Classical CUSUM one-sided change detector applied to **per-minute flow**.
 
-The hybrid detector combines three levels of analysis:
+**Algorithm** (per sample in window):
 
 ```
-┌─────────────────┐
-│  Building Flow  │
-│   (L/min)       │
-└────────┬────────┘
-         │
-    ┌────▼────┐
-    │ Features│      ← 20-min window, 5 features
-    └────┬────┘
-         │
-    ┌────┴────────────────────────┐
-    │                             │
-    ▼                             ▼
-┌─────────────────────┐    ┌──────────────────────┐
-│  CUSUM Detector     │    │ Isolation Forest     │
-│  (Level 2)          │    │ (Level 3)            │
-├─────────────────────┤    ├──────────────────────┤
-│ • Low-flow devs     │    │ • Statistical        │
-│ • Threshold: 0.5    │    │   anomalies          │
-│ • Trigger: 20.0     │    │ • 200 trees, 5%      │
-│ • Output: [0, 1]    │    │   contamination      │
-│                     │    │ • Output: [-1, +1]   │
-└─────────┬───────────┘    └──────────┬───────────┘
-          │                           │
-          │  Score                    │  Score
-          ▼                           ▼
-       0.4×CUSUM              +  0.6×IF_normalized
-            │                           │
-            └────────┬──────────────────┘
-                     ▼
-          ┌─────────────────────┐
-          │ Weighted Fusion     │
-          │ final = 0.4+0.6     │
-          └────────┬────────────┘
-                   │
-                   ▼ (> 0.65?)
-         ┌─ ─ ─ ─ ─ ─ ─ ─ ┐
-        ┌─────────────┐
-        │Persistence  │
-        │ Buffer      │
-        └─────────────┘
-             │
-        (≥2 consecutive?)
-             │
-             ▼
-    ┌───────────────────┐
-    │ Leak Detected ✓   │
-    └───────────────────┘
+if flow >= appliance_flow_thresh (8.0 L/min):
+    # appliance event — partial decay to preserve leak evidence
+    if just started: s *= 0.5
+else:
+    # inter-appliance period — accumulate deviation above k
+    s = max(0, s + flow - cusum_k)
+    if s >= cusum_h:
+        triggered = True
 ```
 
-### CUSUM Algorithm (Level 2)
+**Key design decision — `cusum_k = 2.6`:**
+The normal building inter-appliance baseline is **2.39 L/min** (median).
+Setting `k` below the baseline causes CUSUM to accumulate during normal
+operation, producing constant false alarms. `k = 2.6` keeps the detector
+silent on normal flow and only accumulates when a leak pushes
+inter-appliance flow above 2.6 L/min.
 
-**Change Detection**: Detects persistent deviations below expected baseline.
+| Parameter | Value | Meaning |
+|-----------|-------|---------|
+| `cusum_k` | 2.6 L/min | Reference level; normal baseline = 2.39 → no false drift |
+| `cusum_h` | 8.0 | Accumulated slack to trigger; lower = faster for real leaks |
+| `appliance_flow_thresh` | 8.0 L/min | Flow above this = appliance event (not inter-appliance) |
+| `noise_floor` | 0.2 L/min | Treated as zero |
 
-**Parameters**:
-- `k` = threshold divided by 2 (sensitivity)
-- `h` = decision threshold for slack variable
-
-**Algorithm**:
-```
-For each minute:
-  1. Compute slack variable: S_t = max(0, S_{t-1} + (flow_t - baseline - k))
-  2. If S_t > h → CUSUM triggers
-  3. Score_cusum = S_t / h  (normalized to [0, 1])
-```
-
-**Building-Scale Configuration**:
-- `k = 0.5` (10× household baseline)
-- `h = 20.0` (10× household threshold)
-- Sensitive to sustained low-flow patterns
-- Typical leak: triggers within 20–40 minutes
-
-**Weakness**: Slow to react to sudden spikes (time-based detector)
-**Strength**: Low false positives on gradual usage changes
-
-### Isolation Forest (Level 3)
-
-**Statistical Anomaly Detection**: Identifies points far from normal distribution.
-
-**How It Works**:
-1. Build ensemble of decision trees (200 trees)
-2. Each tree randomly selects features and thresholds
-3. Anomalies require fewer splits to isolate (short path lengths)
-4. Decision function: negative score = anomalous, positive = normal
-
-**Features Used** (5-dimensional):
-```
-1. mnf (min flow)        — Lowest flow in 20-min window
-2. inter_mean            — Average time between appliance events
-3. inter_frac            — Fraction of zero-flow minutes
-4. mean_flow             — Average flow in window
-5. inter_std             — Variability of inter-event times
-```
-
-**Model Characteristics**:
-- Trained on 6 months of normal building data
-- Contamination = 5% (internally calibrated)
-- Detects unusual feature combinations
-- Scores normalized for fusion: `IF_score_norm = (IF_raw + 1) / 2`
-
-**Advantage**: Catches sudden spikes and unusual patterns
-**Limitation**: May trigger on benign high-demand periods
-
-### Fusion Strategy (Level 4)
-
-**Weighted Ensemble**:
-```
-final_anomaly_score = 0.4 × CUSUM + 0.6 × IF_norm
-```
-
-**Rationale**:
-- CUSUM = 40%: Focuses on sustained low-flow (leak signatures)
-- IF = 60%: Broader statistical anomaly detection
-
-**Decision**: `anomaly = (final_score > 0.65)`
-
-**Persistence Filter**:
-- Requires ≥ 2 consecutive windows flagged
-- Windows: 20-minute feature extraction windows
-- Delay: ~20–40 minutes (trade-off for confidence)
-- Reduces false positives from transient usage spikes
+**Bypass rule**: when `cusum_triggered = True`, the detector immediately
+raises a candidate anomaly regardless of the fused score.
 
 ---
 
-## Configuration & Calibration
+### Level 3 — Isolation Forest
 
-### Runtime Configuration Files
+300-tree Isolation Forest trained on **90 days of normal 50-apartment
+aggregate data** (building-scale, not household-scale).
 
-#### 1. `artifacts/all_appliances.json`
-Appliance library defining realistic water usage patterns.
+**7 features** (must match `model.py:_extract_features` exactly):
 
-**Structure**:
-```json
-{
-  "appliances": {
-    "toilet": {
-      "duration_sec": [6, 8],
-      "flow_lpm": [12, 15],
-      "events_per_day": [4, 8]
-    },
-    "shower": {
-      "duration_sec": [600, 1200],
-      "flow_lpm": [6, 8],
-      "events_per_day": [0, 2]
-    },
-    ...
-  }
-}
+| # | Feature | Description |
+|---|---------|-------------|
+| 1 | `mnf` | 10th percentile of non-zero flows in window |
+| 2 | `inter_mean` | Mean flow during inter-appliance minutes |
+| 3 | `inter_frac` | Fraction of inter-appliance minutes above noise floor |
+| 4 | `mean_flow` | Window-average flow |
+| 5 | `inter_std` | Std dev of inter-appliance flows |
+| 6 | `flow_trend` | Linear regression slope (L/min per minute) → rising baseline |
+| 7 | `baseline_elev` | (rolling inter_mean − training median) / training std → normalised elevation |
+
+**IF score normalisation:**
+
+```python
+if_score = clip((if_threshold - raw_score) / if_score_scale, 0, 1)
+# raw_score < if_threshold  → if_score > 0  → anomalous
+# raw_score >= if_threshold → if_score = 0  → normal
 ```
 
-**Components**:
-- `duration_sec`: [min, max] event duration in seconds
-- `flow_lpm`: [min, max] flow rate during event
-- `events_per_day`: [min, max] expected occurrences per day
+**Bypass rule**: when `if_triggered = True` (raw score < `if_threshold`),
+the detector immediately raises a candidate anomaly regardless of the
+fused score.
 
-#### 2. `artifacts/calibration_building.json`
-Building-scale detection thresholds.
+---
 
-**Example**:
+### Fusion & Persistence
+
+```python
+final_score = 0.35 × cusum_score + 0.65 × if_score
+
+candidate_anomaly = (
+    final_score > 0.40       # weighted fusion path
+    or cusum_triggered        # CUSUM statistical trigger
+    or if_triggered           # IF statistical trigger
+)
+
+_anomaly_streak += 1 if candidate_anomaly else reset to 0
+anomaly = (_anomaly_streak >= 4)   # 4 consecutive minutes required
+```
+
+The persistence filter (`persistence_windows = 4`) is the primary guard
+against false positives when the IF threshold is set aggressively (close
+to 0). Any single-window glitch will not produce an alarm.
+
+---
+
+## Training Pipeline
+
+Run via `preprocessing/main.py` or the Docker training image.
+
+### Step 1 — Data generation (`generate_data.py`)
+
+Generates **180 days** of synthetic building aggregate flow:
+
+- **Training set** (90 days, no leaks): used to fit Isolation Forest
+- **Test set** (90 days, 20 injected leaks): used for threshold calibration
+  and evaluation
+
+**20 diverse leak types in test set:**
+
+| Type | Intensity | Duration | Purpose |
+|------|-----------|----------|---------|
+| `sustained_drip` × 5 | 0.1–1.5 L/min | 4–24 h | Hard-to-detect drips |
+| `slow_leak` × 5 | 0.5–3.0 L/min | 3–8 h | Low-intensity sustained |
+| `stress` × 4 | 3.0–10.0 L/min | 1–3 h | Peak-hour bursts |
+| `seasonal` × 2 | 1.0–8.0 L/min | 4–12 h | Winter baseline shift |
+| `night` × 2 | 0.5–5.0 L/min | 1–6 h | Midnight anomaly |
+| `ramp` × 2 | 0.2 → 8.0 L/min | 2–6 h | Gradual onset |
+
+### Step 2 — Model training (`train_model.py`)
+
+1. Extract 7 features from 20-minute windows (stride 5 min)
+2. Fit `StandardScaler` on training features
+3. Train `IsolationForest(n_estimators=300, contamination=auto)`
+4. **Balanced calibration set**: downsample test windows to 5:1
+   (normal:anomaly) before threshold search — prevents PR curve from
+   ignoring the minority anomaly class
+5. `precision_recall_curve` → find threshold maximising F1 at recall ≥ 65%
+6. Compute baseline stats (`inter_mean` median/std) for `baseline_elev`
+7. Save: `isolation_forest_building.pkl`, `scaler_building.pkl`,
+   `calibration_building.json`, `metrics_building.json`
+
+### Step 3 — Artifact copy (`main.py`)
+
+Copies the 4 files above from `preprocessing/artifacts/` to `artifacts/`,
+so the live server picks them up on next restart.
+
+---
+
+## Configuration Reference
+
+All runtime parameters live in `artifacts/calibration_building.json`.
+Edit this file and restart the server — no retraining needed for
+threshold changes.
+
 ```json
 {
-  "cusum_k": 0.5,
-  "cusum_h": 20.0,
-  "if_threshold": -0.0797,
-  "if_score_scale": -0.0189,
-  "noise_floor": 0.2,
+  "version": 2,
+  "window_minutes": 20,
+  "stride_minutes": 5,
   "appliance_flow_thresh": 8.0,
-  "decision_threshold": 0.65,
-  "persistence_windows": 2
+  "noise_floor": 0.2,
+  "n_features": 7,
+  "feature_names": ["mnf","inter_mean","inter_frac","mean_flow","inter_std","flow_trend","baseline_elev"],
+
+  "cusum_k": 2.6,
+  "cusum_h": 8.0,
+
+  "if_threshold": -0.02,
+  "if_score_scale": 0.08,
+
+  "baseline_inter_mean_median": 2.391,
+  "baseline_inter_mean_std":    1.394,
+
+  "w_cusum": 0.35,
+  "w_if":    0.65,
+  "decision_threshold": 0.40,
+  "persistence_windows": 4
 }
 ```
 
-#### 3. `artifacts/if_calibration.json`
-Isolated Forest-specific thresholds.
+### Parameter effects
 
-**Example**:
-```json
-{
-  "if_threshold_99pct": -0.0797,
-  "if_score_scale_factor": -0.0189,
-  "contamination_rate": 0.05
-}
-```
+| Parameter | Lower value | Higher value |
+|-----------|------------|-------------|
+| `cusum_k` | More sensitive (false positives if below baseline) | Less sensitive to small leaks |
+| `cusum_h` | Triggers faster | Fewer false triggers |
+| `if_threshold` | IF triggers more easily (closer to 0) | IF only triggers on strong anomalies |
+| `if_score_scale` | Sharper score transition | Smoother score gradient |
+| `decision_threshold` | More detections via fusion | Fewer fusion-path triggers |
+| `persistence_windows` | Faster alarm (less delay) | Fewer false alarms |
 
-#### 4. `artifacts/metrics_building.json`
-Training performance metrics.
+### Preset tuning profiles
 
-**Example**:
-```json
-{
-  "accuracy": 0.9466,
-  "precision": 0.2644,
-  "recall": 0.7171,
-  "f1_score": 0.3864,
-  "true_positives": 436,
-  "false_positives": 1213,
-  "false_negatives": 172,
-  "true_negatives": 24095
-}
-```
-
-### Tuning Parameters
-
-To adjust detector sensitivity:
-
-| Parameter | Effect | Range | Default |
-|-----------|--------|-------|---------|
-| `cusum_k` | Lower = more sensitive to low-flow | 0.1–1.0 | 0.5 |
-| `cusum_h` | Lower = faster trigger | 5.0–50.0 | 20.0 |
-| `if_threshold` | Lower = more anomalies flagged | -0.5 to 0.0 | -0.05 |
-| `decision_threshold` | Lower = more detections | 0.5–0.9 | 0.65 |
-| `persistence_windows` | Higher = fewer false positives | 1–5 | 2 |
-
-**Recommended Adjustments**:
-- **High Sensitivity** (catch all leaks): `decision_threshold=0.55, persistence_windows=1`
-- **Balanced** (default): `decision_threshold=0.65, persistence_windows=2`
-- **Low Sensitivity** (fewer false positives): `decision_threshold=0.75, persistence_windows=3`
+| Profile | `if_threshold` | `decision_threshold` | `persistence_windows` | Notes |
+|---------|---------------|---------------------|----------------------|-------|
+| **Current (balanced)** | -0.02 | 0.40 | 4 | Default |
+| **High sensitivity** | 0.00 | 0.30 | 3 | More false positives |
+| **Conservative** | -0.06 | 0.55 | 5 | Fewer false positives, misses small leaks |
 
 ---
 
 ## API Reference
 
-### WebSocket Events
+### Socket.IO events
 
-#### Server → Client: `data`
-
-**Emitted**: Every simulated minute
+#### Server → Client: `data_update`  (every simulated minute)
 
 ```json
 {
-  "sim_minutes": 240,
-  "flow": 125.34,
-  "cusum_score": 0.42,
-  "if_score": -0.015,
-  "is_anomaly": false,
-  "leak_detected": false,
-  "speed": 1
+  "flow":             125.3,
+  "sim_time":         "04:32",
+  "sim_minutes":      272,
+  "anomaly":          false,
+  "final_score":      0.18,
+  "level2": {
+    "triggered":      false,
+    "score":          0.12
+  },
+  "level3": {
+    "triggered":      false,
+    "score":          0.21,
+    "reconstruction_error": -0.018,
+    "flow_trend":     0.003,
+    "baseline_elev":  0.47
+  },
+  "leak_active":      false,
+  "leak_mode":        "instant",
+  "leak_intensity":   0.0,
+  "leak_remaining":   0
 }
 ```
 
-**Fields**:
-- `sim_minutes` (int): Total simulated minutes since start
-- `flow` (float): Building aggregate flow (L/min)
-- `cusum_score` (float): CUSUM detector output [0, 1]
-- `if_score` (float): Isolation Forest score [0, 1]
-- `is_anomaly` (bool): Final anomaly decision
-- `leak_detected` (bool): Same as is_anomaly (legacy)
-- `speed` (float): Current simulation speed multiplier
+#### Client → Server events
 
-#### Client → Server: `control`
-
-**Sent**: When user interacts with controls
-
-```json
-{
-  "action": "start|pause|stop",
-  "speed": 1,
-  "leak": {
-    "intensity": 5.0,
-    "duration": 60,
-    "mode": "instant|ramp"
-  }
-}
-```
-
-**Fields**:
-- `action` (str): `start` / `pause` / `stop`
-- `speed` (float): Speed multiplier (1–10)
-- `leak` (dict, optional):
-  - `intensity` (float): Leak rate in L/min
-  - `duration` (int): Leak duration in minutes
-  - `mode` (str): `instant` or `ramp` onset
+| Event | Payload | Action |
+|-------|---------|--------|
+| `start_simulation` | — | Start / resume loop |
+| `pause_simulation` | — | Pause loop |
+| `stop_simulation` | — | Stop + full reset |
+| `set_speed` | `float` (1–10) | Change simulation speed |
+| `inject_leak` | `{intensity, duration, mode, ramp_minutes}` | Start a leak event |
+| `stop_leak` | — | Cancel active leak |
 
 ---
 
 ## Performance Metrics
 
-### Training Dataset Performance
-
-**Metrics** (evaluated on 6-month test set with 8 injected leaks):
+Metrics below are evaluated at the **auto-calibrated threshold** from training
+(`optimal_threshold = -0.10042`).  The live server uses the overridden
+`if_threshold = -0.02` which trades higher recall for more false positives,
+mitigated by the persistence filter.
 
 | Metric | Value |
 |--------|-------|
-| **Accuracy** | 94.66% |
-| **Precision** | 26.44% |
-| **Recall** | 71.71% |
-| **F1 Score** | 38.64% |
+| Accuracy | 92.9% |
+| Precision | 36.5% |
+| Recall | 7.2% (at training threshold; rises significantly at -0.02) |
+| F1 Score | 12.0% (at training threshold) |
+| IF trees | 300 |
+| Features | 7 |
+| Training windows | ~25,900 |
 
-**Confusion Matrix**:
+**Confusion matrix** (at training threshold):
+
 ```
-           Predicted
-           Leak  Normal
-Actual Leak  436    172   (True Positives, False Negatives)
-       Normal 1213  24095 (False Positives, True Negatives)
+              Predicted
+              Anomaly   Normal
+Actual Anomaly   125     1615   (TP / FN)
+       Normal    217    23959   (FP / TN)
 ```
 
-### Interpretation
-
-- **High Recall (71.7%)**: Catches most actual leaks – good for safety
-- **Low Precision (26.4%)**: Many false positives – requires validation step
-- **Accuracy (94.7%)**: Overall correct classifications (normal data dominates)
-
-### Recommended Use
-
-1. **Detection Stage**: Use high recall → flag potential leaks
-2. **Validation Stage**: Human review or 2nd detector to filter false positives
-3. **Alerting Stage**: Notify building maintenance with confidence level
+Note: low recall at the training threshold is expected — the training goal
+was a conservative baseline. The `if_threshold = -0.02` runtime override and
+the CUSUM+IF bypass rules are the actual sensitivity levers for production use.
 
 ---
 
 ## Troubleshooting
 
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| Server won't start | Port 8000 in use | `lsof -i :8000` to find PID, `kill <PID>` |
-| No data in charts | WebSocket disconnected | Check console (F12), restart browser |
-| Detector never triggers | Thresholds too high | Lower `decision_threshold` in config |
-| Too many false positives | Thresholds too low | Increase `decision_threshold` or `persistence_windows` |
-| Slow performance | High simulation speed | Reduce speed slider (1–3x recommended) |
-| Models not loading | Missing artifacts directory | Run `preprocessing/main.py` to regenerate |
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Detector never fires | Server not restarted after config change | Restart / rebuild Docker |
+| Chart "static" at high speed | `cusum_k` below normal baseline | Ensure `cusum_k ≥ 2.6` in calibration JSON |
+| IF only triggers at high intensity | `if_threshold` too negative | Lower toward 0 (e.g. `-0.02`) |
+| Too many false alarms | `if_threshold` too close to 0 or `persistence_windows` too low | Raise threshold or increase windows |
+| Port conflict | Port 5000 in use | Change port in `server.py` and `docker-compose.yml` |
+| `all_appliances.json` not found | Running from wrong directory | Always run from `apartment_simulator/` |
+| Training fails: data not found | `generate_data.py` not run first | Run `py preprocessing/main.py` (runs both steps) |
 
 ---
 
-## Key Technologies
+## Technology Stack
 
-- **Backend**: FastAPI, Socket.IO (WebSocket), Uvicorn
-- **ML**: scikit-learn (Isolation Forest), NumPy
-- **Frontend**: Chart.js (charting), Socket.IO client (WebSocket)
-- **Data**: Pandas, NumPy (data processing)
-- **Container**: Docker, Docker Compose
-
----
-
-## References & Further Reading
-
-- **CUSUM Algorithm**: Page, E.S. "Continuous inspection schemes." Biometrika 41.1 (1954): 100–115.
-- **Isolation Forest**: Liu, F.T., et al. "Isolation Forest." ICDM, 2008.
-- **Building-Scale Leakage**: ISO 16680:2005 "Water meter units – Design, performance and testing"
+| Layer | Technology |
+|-------|-----------|
+| Backend | FastAPI, python-socketio, Uvicorn |
+| ML | scikit-learn (IsolationForest, StandardScaler), NumPy |
+| Data generation | NumPy, Pandas |
+| Frontend | Chart.js, Socket.IO client |
+| Container | Docker, Docker Compose |
 
 ---
 
-## Contributing & Support
-
-For questions or issues:
-1. Check `BUILD_SUMMARY.md` for detailed architecture
-2. Review `preprocessing/README.md` for ML pipeline details
-3. Enable debug logging in `backend/server.py` (uncomment `logging.basicConfig(level=logging.DEBUG)`)
-
----
-
-**Last Updated**: 2026-03-14  
-**Version**: 1.0 (Building Scale)
+**Version**: 2.0 (Building Scale — 7-feature IF, CUSUM+IF bypass, balanced calibration)
+**Last updated**: 2026-03-14

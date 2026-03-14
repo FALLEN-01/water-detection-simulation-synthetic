@@ -14,14 +14,14 @@
     "flow_trend",
     "baseline_elev"
   ],
-  "cusum_k": 0.3,
-  "cusum_h": 15.0,
-  "if_threshold": -0.10041878980289683,
-  "if_score_scale": 0.033685020379880956,
+  "cusum_k": 2.6,
+  "cusum_h": 8.0,
+  "if_threshold": -0.02,
+  "if_score_scale": 0.08,
   "baseline_inter_mean_median": 2.391450244463779,
   "baseline_inter_mean_std": 1.3935953249333513,
   "w_cusum": 0.35,
   "w_if": 0.65,
-  "decision_threshold": 0.55,
-  "persistence_windows": 2
+  "decision_threshold": 0.40,
+  "persistence_windows": 4
 }

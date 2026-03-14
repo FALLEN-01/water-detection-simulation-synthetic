@@ -8,14 +8,33 @@ DESCRIPTION:
 
 KEY CHANGES IN v2:
     - 7 features (was 5): added flow_trend + baseline_elev for sustained-leak detection
-    - flow_trend: linear regression slope of 20-min window → catches rising baselines
-    - baseline_elev: normalized deviation of inter-appliance mean from historical norm
+      * flow_trend: linear regression slope of 20-min window → catches rising baselines
+      * baseline_elev: normalised deviation of inter-appliance mean from training median
     - Rolling 60-min baseline tracker for live inference of baseline_elev
-    - Fixed CUSUM: removed zero-flow decay, reduced k (more sensitive to small leaks)
-      Appliance resets now only partial (×0.5 decay, not full reset), preserving
-      accumulated evidence of ongoing small leaks
-    - Updated default thresholds to match v2 calibration
-    - decision_threshold lowered to 0.55 (was 0.65) for better small-leak recall
+    - CUSUM k raised to 2.6 (was 0.3 / 0.5): old value was below the normal building
+      inter-appliance baseline of ~2.39 L/min, causing CUSUM to trigger constantly on
+      clean data and produce chart "static" at high simulation speed
+    - CUSUM h lowered to 8.0 (was 15–20): once k is correct, fewer minutes of leak-flow
+      accumulation are needed to reach the trigger threshold
+    - Appliance resets are partial (s *= 0.5, not s = 0): preserves accumulated
+      leak evidence when an appliance starts on top of an active leak
+    - CUSUM bypass: cusum_triggered=True raises candidate_anomaly regardless of fusion
+      score — because w_cusum=0.35 can never cross decision_threshold alone via fusion
+    - IF bypass: if_triggered=True also raises candidate_anomaly independently —
+      because at aggressive if_threshold (near 0), partial IF scores would not
+      cross the fusion gate without this bypass
+    - decision_threshold lowered to 0.40 (was 0.65) for the fusion path
+    - persistence_windows raised to 4 (was 2) to compensate for more-sensitive thresholds
+
+CALLIBRATION (loaded from artifacts/calibration_building.json at server startup):
+    cusum_k                   = 2.6          (above normal baseline 2.39 L/min)
+    cusum_h                   = 8.0
+    if_threshold              = -0.02        (aggressively low for 2–5 L/min detection)
+    if_score_scale            = 0.08
+    decision_threshold        = 0.40
+    persistence_windows       = 4
+    baseline_inter_mean_median = 2.391 L/min (from training data)
+    baseline_inter_mean_std   = 1.394 L/min
 
 DEPENDENCIES:
     - numpy: Data processing
@@ -33,9 +52,9 @@ class HybridWaterAnomalyDetector:
         self,
         if_model,
         if_scaler,
-        # CUSUM — tuned for sustained small leaks
-        cusum_k=0.3,               # Lower k = catches smaller sustained deviations (was 0.5)
-        cusum_h=15.0,              # Lower h = triggers sooner (was 20.0)
+        # CUSUM — tuned to building inter-appliance baseline (~2.39 L/min)
+        cusum_k=2.6,               # Must be above normal baseline; was 0.3 → always triggered on clean data
+        cusum_h=8.0,               # Lower threshold since accumulation only happens on real leaks now
         noise_floor=0.2,
         # Isolation Forest
         if_threshold=-0.05,
@@ -47,29 +66,39 @@ class HybridWaterAnomalyDetector:
         baseline_inter_mean_median=1.5,
         baseline_inter_mean_std=0.8,
         # Fusion & decision
-        w2=0.35,                   # CUSUM weight (was 0.4)
-        w3=0.65,                   # IF weight   (was 0.6)
-        decision_threshold=0.55,   # Lower threshold → catches sustained leaks (was 0.65)
-        persistence_windows=2,
+        w2=0.35,                   # CUSUM weight
+        w3=0.65,                   # IF weight
+        decision_threshold=0.40,   # Fusion-path gate; CUSUM/IF bypass rules also apply
+        persistence_windows=4,     # Consecutive candidate windows before alarm fires
     ):
         """
         Initialize the hybrid anomaly detector.
 
+        All parameters are loaded from artifacts/calibration_building.json at server
+        startup; the defaults here reflect the current calibrated values.
+
         Args:
-            if_model:                     Trained Isolation Forest model (7 features)
+            if_model:                     Trained Isolation Forest model (7 features, 300 trees)
             if_scaler:                    StandardScaler fitted on 7 training features
-            cusum_k:                      CUSUM sensitivity parameter
-            cusum_h:                      CUSUM trigger threshold
-            noise_floor:                  Flow below this treated as zero
-            if_threshold:                 IF decision function cut-off (anomaly when score < this)
-            if_score_scale:               Scale for normalising IF score to [0,1]
-            appliance_flow_thresh:        Flow > this = appliance event (not baseline)
-            clip_bound:                   Clips scaled features to [-clip, +clip]
-            baseline_inter_mean_median:   Historical median of inter-appliance mean flow
-            baseline_inter_mean_std:      Historical std dev of inter-appliance mean flow
-            w2, w3:                       Weights for CUSUM and IF in fusion
-            decision_threshold:           Fused score threshold for anomaly declaration
-            persistence_windows:          Consecutive anomaly windows required
+            cusum_k:                      CUSUM reference level.  MUST be above the normal
+                                          inter-appliance baseline (~2.39 L/min) to prevent
+                                          accumulation on clean data.  Default 2.6.
+            cusum_h:                      CUSUM trigger threshold (accumulated slack).  Default 8.0.
+            noise_floor:                  Flow below this treated as zero (0.2 L/min)
+            if_threshold:                 IF decision function cut-off.  Anomaly when raw score < this.
+                                          Set aggressively close to 0 (-0.02) for 2–5 L/min detection.
+            if_score_scale:               Range over which IF score transitions 0→1. Default 0.08.
+            appliance_flow_thresh:        Flow >= this = appliance event; excluded from CUSUM
+                                          inter-appliance accumulation.  Default 8.0 L/min.
+            clip_bound:                   Clips scaled feature vector to [-clip, +clip] before IF
+            baseline_inter_mean_median:   Training-set median of inter-appliance mean flow.
+                                          Used for baseline_elev feature.  Default from calib JSON.
+            baseline_inter_mean_std:      Training-set std dev of inter-appliance mean flow.
+            w2, w3:                       CUSUM and IF weights in fusion (0.35 / 0.65)
+            decision_threshold:           Fused score gate for anomaly declaration (0.40).
+                                          Either CUSUM or IF can also bypass this gate independently.
+            persistence_windows:          Consecutive candidate-anomaly windows required before
+                                          alarm fires (4).  Primary false-positive guard.
         """
         self.if_model = if_model
         self.if_scaler = if_scaler
@@ -260,7 +289,16 @@ class HybridWaterAnomalyDetector:
         # ── Fusion ────────────────────────────────────────────────────────────
         final_score = self.w2 * cusum_score + self.w3 * if_score
 
-        candidate_anomaly = final_score > self.decision_threshold
+        # Both CUSUM and IF can independently bypass the weighted fusion threshold:
+        # - w_cusum=0.35 alone can never cross decision_threshold=0.40 via fusion
+        # - IF at partial confidence (raw score just below threshold) contributes
+        #   too little via 0.65 × small_if_score to cross decision_threshold
+        # Persistence filter (windows=4) is the guard against false positives.
+        candidate_anomaly = (
+            final_score > self.decision_threshold
+            or cusum_triggered
+            or if_triggered
+        )
 
         # ── Persistence filter ────────────────────────────────────────────────
         if candidate_anomaly:

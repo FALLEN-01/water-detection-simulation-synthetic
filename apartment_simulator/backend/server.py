@@ -188,7 +188,13 @@ last_result = {
     "anomaly": False,
     "final_score": 0.0,
     "level2": {"triggered": False, "score": 0.0},
-    "level3": {"triggered": False, "score": 0.0, "reconstruction_error": 0.0},
+    "level3": {
+        "triggered": False,
+        "score": 0.0,
+        "reconstruction_error": 0.0,
+        "flow_trend": 0.0,
+        "baseline_elev": 0.0,
+    },
 }
 
 leak_active = False

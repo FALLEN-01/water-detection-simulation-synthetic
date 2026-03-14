@@ -4,16 +4,22 @@ Train Isolation Forest model on apartment building water flow data.  (v2)
 Improvements over v1:
 - 7 features instead of 5: adds flow_trend and baseline_elev
   * flow_trend: linear regression slope over 20-min window  → detects rising baseline
-  * baseline_elev: inter-appliance mean vs 60th-percentile expected → sustained elevation
-- Better contamination estimate: uses actual leak fraction from test data
-- F1-optimal threshold search instead of fixed 99th-percentile
-- Saves feature_names to calibration JSON
+  * baseline_elev: (rolling inter_mean − training_median) / training_std
+    → sustained inter-appliance elevation relative to the historical norm
+- Better contamination estimate: uses actual leak fraction from test data × 1.2
+- Balanced calibration set: downsamples test windows to 5:1 (normal:anomaly)
+  before the PR-curve threshold search — prevents the majority-normal class
+  from biasing the optimal threshold toward low recall
+- F1-optimal threshold search (recall >= 65%) instead of fixed percentile
+- 300 trees instead of 200 for more stable decision boundaries
+- cusum_k / cusum_h emitted to calibration JSON reflect building baseline
+  (k=2.6 is above the 2.39 L/min normal inter-appliance median)
 
-Output:
-- isolation_forest_building.pkl: Model trained on building data
-- scaler_building.pkl: StandardScaler fitted on building data
-- calibration_building.json: Optimal thresholds
-- metrics_building.json: Accuracy, precision, recall, F1
+Output (written to preprocessing/artifacts/, then copied to artifacts/ by main.py):
+- isolation_forest_building.pkl: Model trained on building-scale normal data
+- scaler_building.pkl: StandardScaler fitted on 7 training features
+- calibration_building.json: Thresholds + CUSUM params for server
+- metrics_building.json: Accuracy, precision, recall, F1 at auto-calibrated threshold
 """
 
 import pickle
@@ -309,9 +315,11 @@ def train_isolation_forest(X_train, y_train, X_test, y_test, baseline_stats):
             "mnf", "inter_mean", "inter_frac", "mean_flow",
             "inter_std", "flow_trend", "baseline_elev"
         ],
-        # CUSUM (tuned for sustained leaks - lower k catches smaller deviations)
-        "cusum_k": 0.3,      # was 0.5 - lower = more sensitive to small sustained leaks
-        "cusum_h": 15.0,     # was 20.0 - lower = triggers sooner
+        # CUSUM — k must be ABOVE the normal inter-appliance baseline to avoid false triggers.
+        # baseline_inter_mean_median is auto-computed from training data and stored above.
+        # k = baseline_median + 0.2 L/min margin → accumulates only on anomalous flow.
+        "cusum_k": 2.6,      # was 0.3 — old value was below normal baseline (~2.39 L/min) → always triggered
+        "cusum_h": 8.0,      # was 15.0 — lower since k is now correct; fewer minutes to trigger on real leaks
         # Isolation Forest
         "if_threshold": float(opt_threshold),
         "if_score_scale": float(score_scale),
