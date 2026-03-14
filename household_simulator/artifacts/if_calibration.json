@@ -1,7 +1,7 @@
 {
   "window_minutes": 20,
   "stride_minutes": 5,
-  "appliance_flow_thresh": 2.0,
+  "appliance_flow_thresh": 0.8,
   "cusum_k": 0.01,
   "cusum_h": 1.0,
   "if_threshold": -0.109782,

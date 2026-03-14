@@ -12,11 +12,12 @@ class HybridWaterAnomalyDetector:
         noise_floor=0.02,
         if_threshold=-0.05,
         if_score_scale=0.1,
-        appliance_flow_thresh=2.0,
+        appliance_flow_thresh=0.8,  # lowered
         clip_bound=10.0,
         w2=0.4,
         w3=0.6,
         decision_threshold=0.65,
+        persistence_windows=2,      # NEW
     ):
 
         self.if_model = if_model
@@ -36,6 +37,9 @@ class HybridWaterAnomalyDetector:
         self.w3 = w3
         self.decision_threshold = decision_threshold
 
+        self.persistence_windows = persistence_windows
+        self._anomaly_streak = 0
+
         self.cusum_s = 0.0
         self._prev_appliance = False
 
@@ -54,17 +58,14 @@ class HybridWaterAnomalyDetector:
 
             appliance = lpm >= self.appliance_flow_thresh
 
-            # reset when appliance begins
             if appliance and not prev:
                 s = 0.0
 
             if not appliance:
 
                 if lpm <= self.noise_floor:
-                    # decay during silence
                     s *= 0.8
                 else:
-                    # accumulate unexplained flow
                     delta = lpm - self.cusum_k
                     s = max(0.0, s + delta)
 
@@ -85,7 +86,6 @@ class HybridWaterAnomalyDetector:
 
     def _extract_features(self, window):
 
-        # everything below appliance level is background
         inter = window[window < self.appliance_flow_thresh]
         nonzero = window[window > 0.0]
 
@@ -116,12 +116,9 @@ class HybridWaterAnomalyDetector:
 
         window = np.asarray(window, dtype=np.float32)
 
-        # level2 CUSUM
         s_final, cusum_triggered = self._run_cusum(window)
-
         cusum_score = min(1.0, s_final / self.cusum_h)
 
-        # level3 Isolation Forest
         features = self._extract_features(window)
 
         raw_if_score = float(self.if_model.decision_function(features)[0])
@@ -129,13 +126,19 @@ class HybridWaterAnomalyDetector:
         if_triggered = raw_if_score < self.if_threshold
 
         anomaly_distance = max(0.0, self.if_threshold - raw_if_score)
-
         if_score = min(1.0, anomaly_distance / self.if_score_scale)
 
-        # fusion
         final_score = self.w2 * cusum_score + self.w3 * if_score
 
-        final_anomaly = final_score > self.decision_threshold
+        candidate_anomaly = final_score > self.decision_threshold
+
+        # ── persistence filter ──
+        if candidate_anomaly:
+            self._anomaly_streak += 1
+        else:
+            self._anomaly_streak = 0
+
+        final_anomaly = self._anomaly_streak >= self.persistence_windows
 
         return {
             "anomaly": bool(final_anomaly),
@@ -152,9 +155,8 @@ class HybridWaterAnomalyDetector:
         }
 
 
-    # ───────────────────────────────────────
-
     def reset(self):
 
         self.cusum_s = 0.0
         self._prev_appliance = False
+        self._anomaly_streak = 0
