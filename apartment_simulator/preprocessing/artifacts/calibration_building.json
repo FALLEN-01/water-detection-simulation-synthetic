@@ -1,0 +1,11 @@
+{
+  "window_minutes": 20,
+  "stride_minutes": 5,
+  "appliance_flow_thresh": 8.0,
+  "noise_floor": 0.2,
+  "cusum_k": 0.5,
+  "cusum_h": 20.0,
+  "if_threshold": -0.07978437841471123,
+  "if_score_scale": 0.1,
+  "if_threshold_95": -2.7755575615628914e-17
+}

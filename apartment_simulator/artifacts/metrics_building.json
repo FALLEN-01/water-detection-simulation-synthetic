@@ -1,0 +1,14 @@
+{
+  "accuracy": 0.946558110819571,
+  "precision": 0.2644026682838084,
+  "recall": 0.7171052631578947,
+  "f1_score": 0.38635356668143556,
+  "confusion_matrix": {
+    "TP": 436,
+    "FP": 1213,
+    "FN": 172,
+    "TN": 24095
+  },
+  "contamination": 0.05,
+  "n_estimators": 200
+}

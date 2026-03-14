@@ -116,9 +116,28 @@ def find_model_path(name, alternates=None):
 
 # Load models and configuration
 print("Loading models...")
-if_model = load_pickle(find_model_path("if_model.pkl", ["isolation_forest_model.pkl"]))
-if_scaler = load_pickle(find_model_path("if_scaler.pkl"))
-cal = load_json(ARTIFACTS_DIR / "if_calibration.json")
+# Prioritize building-scale models (trained on 50-apartment aggregate data)
+try:
+    if_model = load_pickle(ARTIFACTS_DIR / "isolation_forest_building.pkl")
+    print("Using building-scale Isolation Forest model")
+except FileNotFoundError:
+    print("Building-scale model not found, falling back to household model")
+    if_model = load_pickle(find_model_path("if_model.pkl", ["isolation_forest_model.pkl"]))
+
+try:
+    if_scaler = load_pickle(ARTIFACTS_DIR / "scaler_building.pkl")
+    print("Using building-scale scaler")
+except FileNotFoundError:
+    print("Building-scale scaler not found, falling back to household scaler")
+    if_scaler = load_pickle(find_model_path("if_scaler.pkl"))
+
+# Try building calibration first
+try:
+    cal = load_json(ARTIFACTS_DIR / "calibration_building.json")
+    print("Using building-scale calibration")
+except FileNotFoundError:
+    cal = load_json(ARTIFACTS_DIR / "if_calibration.json")
+    print("Using household calibration")
 
 WINDOW_MINUTES = cal["window_minutes"]
 
