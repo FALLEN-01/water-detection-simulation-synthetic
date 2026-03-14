@@ -112,7 +112,7 @@ Kitchen Faucet     | 98%    | 100%   | ~100%   | Essential fixture
 Shower             | 90%    | 98%    | ~95%    | Most have, some use bucket
 Washing Machine    | 65%    | 75%    | ~70%    | Common but not universal
 Bidet              | 25%    | 35%    | ~30%    | Less common in India
-Dishwasher         | 12%    | 18%    | ~15%    | Rare in Indian households
+Dishwasher         | 5%    | 8%    | ~4%    | Rare in Indian households
 ```
 
 **Implementation**: Each simulation run randomizes availability once for the entire building, representing the aggregate fixture distribution.
