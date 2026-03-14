@@ -60,54 +60,86 @@ def generate_building_training_data(days=180, seed=42):
     return df
 
 
-def inject_leaks_into_data(df, num_leaks=8, leak_duration_minutes=360):
+def inject_leaks_into_data(df, num_low_sustained=6, num_medium_sustained=6, num_high_burst=6):
     """
-    Inject realistic leak events into test data.
+    Inject diverse leak patterns into test data for better model training.
 
-    Leak patterns:
-    - Stress-induced: During peak hours (7-8 AM, 7-9 PM)
-    - Seasonal: Winter months
-    - Night-time: Midnight-6 AM
+    Three leak categories:
+    1. Low-sustained: 0.5-2.0 L/min for 3-7 days (hard to detect!)
+    2. Medium-sustained: 2.0-5.0 L/min for 1-3 days
+    3. High-burst: 10-20 L/min for 6-24 hours (easy to detect)
     """
-    print(f"Injecting {num_leaks} leak events into test data...")
-
     df = df.copy()
     df['is_leak'] = False
     df['leak_intensity'] = 0.0
+    df['leak_type'] = ''
 
-    leak_types = ['stress', 'seasonal', 'night']
+    leak_id = 0
 
-    for i in range(num_leaks):
-        leak_type = leak_types[i % len(leak_types)]
+    # LOW-SUSTAINED LEAKS (hardest to detect - focus here!)
+    print(f"\nInjecting {num_low_sustained} low-sustained leaks (0.5-2.0 L/min for days)...")
+    for i in range(num_low_sustained):
+        intensity = np.random.uniform(0.5, 2.0)  # Subtle
+        duration_days = np.random.randint(3, 8)  # 3-7 days
+        duration_minutes = duration_days * MINUTES_PER_DAY
 
-        # Randomize leak parameters
-        intensity = np.random.uniform(2.0, 10.0)  # 2-10 L/min for building
-
-        if leak_type == 'stress':
-            # Peak hours: 7-8 AM or 7-9 PM
-            hour = np.random.choice([7, 19])
-            day = np.random.randint(0, len(df) // MINUTES_PER_DAY)
-            start_min = day * MINUTES_PER_DAY + hour * 60 + np.random.randint(0, 60)
-
-        elif leak_type == 'seasonal':
-            # Winter months only (assume first 60 days)
-            day = np.random.randint(0, 60)
-            start_min = day * MINUTES_PER_DAY + np.random.randint(0, MINUTES_PER_DAY)
-
-        else:  # night_time
-            # Midnight to 6 AM
-            hour = np.random.randint(0, 6)
-            day = np.random.randint(0, len(df) // MINUTES_PER_DAY)
-            start_min = day * MINUTES_PER_DAY + hour * 60 + np.random.randint(0, 60)
-
-        end_min = min(start_min + leak_duration_minutes, len(df))
+        day = np.random.randint(0, (len(df) // MINUTES_PER_DAY) - duration_days)
+        start_min = day * MINUTES_PER_DAY
+        end_min = min(start_min + duration_minutes, len(df))
 
         df.loc[start_min:end_min, 'is_leak'] = True
         df.loc[start_min:end_min, 'leak_intensity'] = intensity
         df.loc[start_min:end_min, 'flow_lpm'] += intensity
+        df.loc[start_min:end_min, 'leak_type'] = 'low-sustained'
 
-        print(f"  Leak {i+1}: {leak_type:10s} | Day {start_min//MINUTES_PER_DAY:3d} | "
-              f"Intensity {intensity:.1f} L/min | Duration {leak_duration_minutes} min")
+        leak_id += 1
+        print(f"  [{leak_id}] Low-sustained: Day {day:3d} | "
+              f"Intensity {intensity:.2f} L/min | Duration {duration_days} days ({duration_minutes} min)")
+
+    # MEDIUM-SUSTAINED LEAKS
+    print(f"\nInjecting {num_medium_sustained} medium-sustained leaks (2-5 L/min for days)...")
+    for i in range(num_medium_sustained):
+        intensity = np.random.uniform(2.0, 5.0)
+        duration_days = np.random.randint(1, 4)  # 1-3 days
+        duration_minutes = duration_days * MINUTES_PER_DAY
+
+        day = np.random.randint(0, (len(df) // MINUTES_PER_DAY) - duration_days)
+        start_min = day * MINUTES_PER_DAY + np.random.randint(0, MINUTES_PER_DAY)
+        end_min = min(start_min + duration_minutes, len(df))
+
+        df.loc[start_min:end_min, 'is_leak'] = True
+        df.loc[start_min:end_min, 'leak_intensity'] = intensity
+        df.loc[start_min:end_min, 'flow_lpm'] += intensity
+        df.loc[start_min:end_min, 'leak_type'] = 'medium-sustained'
+
+        leak_id += 1
+        print(f"  [{leak_id}] Medium-sustained: Day {day:3d} | "
+              f"Intensity {intensity:.2f} L/min | Duration {duration_days} days ({duration_minutes} min)")
+
+    # HIGH-BURST LEAKS (easy to detect)
+    print(f"\nInjecting {num_high_burst} high-burst leaks (10-20 L/min for hours)...")
+    for i in range(num_high_burst):
+        intensity = np.random.uniform(10.0, 20.0)
+        duration_hours = np.random.randint(6, 25)  # 6-24 hours
+        duration_minutes = duration_hours * 60
+
+        # Place during peak hours for realism
+        hour = np.random.choice([7, 14, 19])
+        day = np.random.randint(0, len(df) // MINUTES_PER_DAY)
+        start_min = day * MINUTES_PER_DAY + hour * 60 + np.random.randint(0, 60)
+        end_min = min(start_min + duration_minutes, len(df))
+
+        df.loc[start_min:end_min, 'is_leak'] = True
+        df.loc[start_min:end_min, 'leak_intensity'] = intensity
+        df.loc[start_min:end_min, 'flow_lpm'] += intensity
+        df.loc[start_min:end_min, 'leak_type'] = 'high-burst'
+
+        leak_id += 1
+        print(f"  [{leak_id}] High-burst: Day {day:3d} Hour {hour:2d} | "
+              f"Intensity {intensity:.1f} L/min | Duration {duration_hours} hours ({duration_minutes} min)")
+
+    total_leak_minutes = (df['is_leak']).sum()
+    print(f"\n✓ Total injected leak minutes: {total_leak_minutes:,} ({100*total_leak_minutes/len(df):.2f}%)")
 
     return df
 
@@ -136,11 +168,11 @@ if __name__ == "__main__":
 
     # Generate test data (normal + leaks)
     test_df = generate_building_training_data(days=DAYS // 2, seed=123)
-    test_df = inject_leaks_into_data(test_df, num_leaks=8, leak_duration_minutes=360)
+    test_df = inject_leaks_into_data(test_df, num_low_sustained=6, num_medium_sustained=6, num_high_burst=6)
     save_dataset(
         test_df,
         "water_test_building",
-        f"6 months × 50 apartments + 8 leaks = {len(test_df):,} samples "
+        f"6 months × 50 apartments + 18 leaks = {len(test_df):,} samples "
         f"({test_df['is_leak'].sum():,} leak minutes)"
     )
 
