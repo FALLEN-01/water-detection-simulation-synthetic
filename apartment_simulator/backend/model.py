@@ -1,40 +1,38 @@
 """
-Hybrid Water Anomaly Detection Model for Apartment Buildings  (v2)
+Hybrid Water Anomaly Detection Model for Apartment Buildings
 
 DESCRIPTION:
     Implements a hybrid anomaly detector for building-level water flow data, combining
     statistical CUSUM change detection with machine learning Isolation Forest.
     Designed for 50-apartment building aggregate flow monitoring.
 
-KEY CHANGES IN v2:
-    - 7 features (was 5): added flow_trend + baseline_elev for sustained-leak detection
+DESIGN NOTES:
+    - 7 features: mnf, inter_mean, inter_frac, mean_flow, inter_std, flow_trend, baseline_elev
       * flow_trend: linear regression slope of 20-min window → catches rising baselines
       * baseline_elev: normalised deviation of inter-appliance mean from training median
     - Rolling 60-min baseline tracker for live inference of baseline_elev
-    - CUSUM k raised to 2.6 (was 0.3 / 0.5): old value was below the normal building
-      inter-appliance baseline of ~2.39 L/min, causing CUSUM to trigger constantly on
-      clean data and produce chart "static" at high simulation speed
-    - CUSUM h lowered to 8.0 (was 15–20): once k is correct, fewer minutes of leak-flow
-      accumulation are needed to reach the trigger threshold
-    - Appliance resets are partial (s *= 0.5, not s = 0): preserves accumulated
-      leak evidence when an appliance starts on top of an active leak
-    - CUSUM bypass: cusum_triggered=True raises candidate_anomaly regardless of fusion
-      score — because w_cusum=0.35 can never cross decision_threshold alone via fusion
-    - IF bypass: if_triggered=True also raises candidate_anomaly independently —
-      because at aggressive if_threshold (near 0), partial IF scores would not
-      cross the fusion gate without this bypass
-    - decision_threshold lowered to 0.40 (was 0.65) for the fusion path
-    - persistence_windows raised to 4 (was 2) to compensate for more-sensitive thresholds
+    - CUSUM k = 3.0: sits at ~67th percentile of normal inter-appliance flow (median 2.39 L/min,
+      std 1.39), so natural variance cannot accumulate to h within a realistic window
+    - CUSUM h = 15.0: requires sustained above-k flow for many minutes; normal appliance cycling
+      provides frequent partial resets (s *= 0.5) that prevent drift on clean data
+    - Appliance resets are partial (s *= 0.5, not s = 0): preserves accumulated leak evidence
+      when an appliance starts on top of an active leak
+    - CUSUM bypass: cusum_triggered=True raises candidate_anomaly regardless of fusion score
+      because w_cusum=0.35 alone cannot cross decision_threshold via weighted fusion
+    - IF bypass: if_triggered=True also raises candidate_anomaly independently, because at
+      aggressive if_threshold (near 0) partial IF scores do not cross the fusion gate
+    - persistence_windows=4: requires 4 consecutive candidate-anomaly minutes before alarm fires;
+      primary false-positive guard when IF threshold is set close to zero
 
-CALLIBRATION (loaded from artifacts/calibration_building.json at server startup):
-    cusum_k                   = 2.6          (above normal baseline 2.39 L/min)
-    cusum_h                   = 8.0
-    if_threshold              = -0.02        (aggressively low for 2–5 L/min detection)
-    if_score_scale            = 0.08
-    decision_threshold        = 0.40
-    persistence_windows       = 4
+CALIBRATION (loaded from artifacts/calibration_building.json at server startup):
+    cusum_k                    = 3.0   (67th pct of normal inter-appliance flow)
+    cusum_h                    = 15.0
+    if_threshold               = -0.02 (aggressive; catches 2-5 L/min leaks)
+    if_score_scale             = 0.08
+    decision_threshold         = 0.40
+    persistence_windows        = 4
     baseline_inter_mean_median = 2.391 L/min (from training data)
-    baseline_inter_mean_std   = 1.394 L/min
+    baseline_inter_mean_std    = 1.394 L/min
 
 DEPENDENCIES:
     - numpy: Data processing
@@ -53,8 +51,8 @@ class HybridWaterAnomalyDetector:
         if_model,
         if_scaler,
         # CUSUM — tuned to building inter-appliance baseline (~2.39 L/min)
-        cusum_k=2.6,               # Must be above normal baseline; was 0.3 → always triggered on clean data
-        cusum_h=8.0,               # Lower threshold since accumulation only happens on real leaks now
+        cusum_k=3.0,               # Must be above normal baseline; 3.0 = ~67th pct of normal inter-appliance flow
+        cusum_h=15.0,              # High enough that normal variance can't reach it without a real leak
         noise_floor=0.2,
         # Isolation Forest
         if_threshold=-0.05,
@@ -83,7 +81,7 @@ class HybridWaterAnomalyDetector:
             cusum_k:                      CUSUM reference level.  MUST be above the normal
                                           inter-appliance baseline (~2.39 L/min) to prevent
                                           accumulation on clean data.  Default 2.6.
-            cusum_h:                      CUSUM trigger threshold (accumulated slack).  Default 8.0.
+            cusum_h:                      CUSUM trigger threshold (accumulated slack).  Default 15.0.
             noise_floor:                  Flow below this treated as zero (0.2 L/min)
             if_threshold:                 IF decision function cut-off.  Anomaly when raw score < this.
                                           Set aggressively close to 0 (-0.02) for 2–5 L/min detection.
@@ -140,13 +138,14 @@ class HybridWaterAnomalyDetector:
         """
         Run CUSUM change detection on a window of flow data.
 
-        v2 changes vs v1:
-        - Removed zero-flow decay (*0.8). In a 50-apartment building, true zero
-          flow is rare; the decay was preventing accumulation of sustained-leak signal.
-        - Appliance resets are now PARTIAL (s *= 0.5), not full reset (s = 0).
-          This preserves accumulated evidence that a small baseline leak exists
-          even when appliances are running on top of it.
-        - k lowered from 0.5 to 0.3 → accumulates more signal from small leaks
+        Design notes:
+        - No zero-flow decay: in a 50-apartment building true zero flow is rare;
+          decay would prevent accumulation of sustained-leak signal.
+        - Appliance resets are PARTIAL (s *= 0.5), not full reset (s = 0).
+          This preserves accumulated evidence of a small baseline leak even
+          when appliances are running on top of it.
+        - k = 3.0 sits above the normal inter-appliance baseline so CUSUM only
+          accumulates when a real leak pushes flow above the reference level.
         """
         s = self.cusum_s
         triggered = False

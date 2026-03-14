@@ -14,8 +14,8 @@
     "flow_trend",
     "baseline_elev"
   ],
-  "cusum_k": 2.6,
-  "cusum_h": 8.0,
+  "cusum_k": 3.0,
+  "cusum_h": 15.0,
   "if_threshold": -0.02,
   "if_score_scale": 0.08,
   "baseline_inter_mean_median": 2.391450244463779,

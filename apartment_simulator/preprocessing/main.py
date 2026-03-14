@@ -1,5 +1,5 @@
 """
-Run the complete apartment building model training pipeline.  (v2)
+Run the complete apartment building model training pipeline.
 
 Steps:
 1. Generate building-scale synthetic training data (90 days normal + test with 20 diverse leaks)
@@ -63,8 +63,8 @@ def copy_artifacts():
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("APARTMENT BUILDING MODEL TRAINING PIPELINE  v2")
-    print("7-feature Isolation Forest + improved leak coverage")
+    print("APARTMENT BUILDING MODEL TRAINING PIPELINE")
+    print("7-feature Isolation Forest — diverse leak coverage")
     print("=" * 70)
 
     # Step 1: Generate data
@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     # Step 2: Train model
     run_step(
-        "Train Isolation Forest v2 (7 features)",
+        "Train Isolation Forest (7 features)",
         "train_model.py"
     )
 

@@ -4,11 +4,10 @@ Generate synthetic training data for apartment building anomaly detection.
 Creates 6 months of synthetic water flow data for 50 apartments (aggregated),
 split into training (normal only) and test (with injected leaks) datasets.
 
-Improvements over v1:
-- Leak intensity range expanded: 0.1 - 15 L/min (was 2-10)
-- Added "sustained drip" leak type: 0.1-1.5 L/min over 4-24 hours
-- Added duration variety: 30, 180, 360, 720, 1440 minutes
-- 20 leak events in test set (was 8) for better label coverage
+Leak coverage in test set:
+- Intensity range: 0.1 - 15 L/min (wide spectrum)
+- Types: sustained_drip, slow_leak, stress, seasonal, night, ramp
+- 20 leak events for good label coverage across diverse scenarios
 - Ramp-style leaks included for gradual onset detection
 
 Output: CSV files compatible with model training
@@ -71,13 +70,13 @@ def inject_leaks_into_data(df, num_leaks=20, seed=99):
     """
     Inject diverse realistic leak events into test data.
 
-    Leak types (v2):
-    - sustained_drip:   0.1 - 1.5 L/min, 4-24 hours  ← NEW: was never in training
+    Leak types:
+    - sustained_drip:   0.1 - 1.5 L/min, 4-24 hours
     - slow_leak:        0.5 - 3.0 L/min, 3-8 hours
     - stress:           3.0 - 10.0 L/min, 1-3 hours (peak hours)
     - seasonal:         1.0 - 8.0 L/min, 6 hours (winter)
     - night:            0.5 - 5.0 L/min, midnight-6 AM
-    - ramp:             gradual onset 0.2 → 5.0 L/min over 60-120 min ← NEW
+    - ramp:             gradual onset 0.2 → 5.0 L/min over 60-120 min
 
     This gives the Isolation Forest exposure to the full spectrum of leak sizes,
     especially low-intensity sustained leaks that the original model never saw.
@@ -207,7 +206,7 @@ def save_dataset(df, filename, description=""):
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("APARTMENT BUILDING SYNTHETIC DATA GENERATION  (v2 - Improved Leaks)")
+    print("APARTMENT BUILDING SYNTHETIC DATA GENERATION")
     print("=" * 70)
 
     # Generate training data (normal only)

@@ -1,4 +1,4 @@
-# Apartment Building Water Leak Detection Simulator  (v2)
+# Apartment Building Water Leak Detection Simulator
 
 Real-time, AI-powered water leak detection for a 50-unit apartment building.
 Generates synthetic building-aggregate water flow data, applies a hybrid
@@ -31,18 +31,6 @@ interactive web dashboard.
 - Detects water leaks in real time using a **hybrid CUSUM + Isolation Forest** detector
 - Streams minute-by-minute flow, anomaly scores, and detection status to a browser dashboard
 - Supports **leak injection** (instant or ramp) to test detection at any intensity
-
-### Key improvements in v2
-
-| Area | v1 | v2 |
-|------|----|----|
-| Features | 5 | **7** (added `flow_trend`, `baseline_elev`) |
-| IF model trees | 200 | **300** |
-| Training leaks | 8 | **20 diverse types** (drip, ramp, stress, night, seasonal) |
-| Threshold calibration | raw test set | **balanced 5:1 calibration set** |
-| CUSUM k (building) | 0.5 | **2.6** (correctly above normal baseline of 2.39 L/min) |
-| Fusion bypass | none | **CUSUM and IF both bypass weighted fusion** when independently triggered |
-| False positive guard | 2 windows | **4 consecutive windows** |
 
 ---
 
@@ -224,17 +212,17 @@ else:
         triggered = True
 ```
 
-**Key design decision — `cusum_k = 2.6`:**
-The normal building inter-appliance baseline is **2.39 L/min** (median).
-Setting `k` below the baseline causes CUSUM to accumulate during normal
-operation, producing constant false alarms. `k = 2.6` keeps the detector
-silent on normal flow and only accumulates when a leak pushes
-inter-appliance flow above 2.6 L/min.
+**Key design decision — `cusum_k = 3.0`:**
+The normal building inter-appliance baseline is **2.39 L/min** (median, std 1.39).
+Setting `k` at 3.0 places it at the ~67th percentile of normal inter-appliance flow.
+Only the upper third of normal minutes cause any accumulation, and natural appliance
+cycling (partial reset on each appliance start) prevents that accumulation from
+reaching `h` without a real sustained leak.
 
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
-| `cusum_k` | 2.6 L/min | Reference level; normal baseline = 2.39 → no false drift |
-| `cusum_h` | 8.0 | Accumulated slack to trigger; lower = faster for real leaks |
+| `cusum_k` | 3.0 L/min | Reference level; ~67th pct of normal inter-appliance flow |
+| `cusum_h` | 15.0 | Accumulated slack to trigger; high enough to ignore normal variance |
 | `appliance_flow_thresh` | 8.0 L/min | Flow above this = appliance event (not inter-appliance) |
 | `noise_floor` | 0.2 L/min | Treated as zero |
 
@@ -354,8 +342,8 @@ threshold changes.
   "n_features": 7,
   "feature_names": ["mnf","inter_mean","inter_frac","mean_flow","inter_std","flow_trend","baseline_elev"],
 
-  "cusum_k": 2.6,
-  "cusum_h": 8.0,
+  "cusum_k": 3.0,
+  "cusum_h": 15.0,
 
   "if_threshold": -0.02,
   "if_score_scale": 0.08,
@@ -472,7 +460,7 @@ the CUSUM+IF bypass rules are the actual sensitivity levers for production use.
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | Detector never fires | Server not restarted after config change | Restart / rebuild Docker |
-| Chart "static" at high speed | `cusum_k` below normal baseline | Ensure `cusum_k ≥ 2.6` in calibration JSON |
+| Chart "static" at high speed | `cusum_k` below normal baseline | Ensure `cusum_k ≥ 3.0` in calibration JSON |
 | IF only triggers at high intensity | `if_threshold` too negative | Lower toward 0 (e.g. `-0.02`) |
 | Too many false alarms | `if_threshold` too close to 0 or `persistence_windows` too low | Raise threshold or increase windows |
 | Port conflict | Port 5000 in use | Change port in `server.py` and `docker-compose.yml` |
@@ -493,5 +481,4 @@ the CUSUM+IF bypass rules are the actual sensitivity levers for production use.
 
 ---
 
-**Version**: 2.0 (Building Scale — 7-feature IF, CUSUM+IF bypass, balanced calibration)
 **Last updated**: 2026-03-14

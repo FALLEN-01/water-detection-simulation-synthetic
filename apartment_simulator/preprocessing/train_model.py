@@ -1,25 +1,24 @@
 """
-Train Isolation Forest model on apartment building water flow data.  (v2)
+Train Isolation Forest model on apartment building water flow data.
 
-Improvements over v1:
-- 7 features instead of 5: adds flow_trend and baseline_elev
-  * flow_trend: linear regression slope over 20-min window  → detects rising baseline
-  * baseline_elev: (rolling inter_mean − training_median) / training_std
-    → sustained inter-appliance elevation relative to the historical norm
-- Better contamination estimate: uses actual leak fraction from test data × 1.2
-- Balanced calibration set: downsamples test windows to 5:1 (normal:anomaly)
-  before the PR-curve threshold search — prevents the majority-normal class
-  from biasing the optimal threshold toward low recall
-- F1-optimal threshold search (recall >= 65%) instead of fixed percentile
-- 300 trees instead of 200 for more stable decision boundaries
-- cusum_k / cusum_h emitted to calibration JSON reflect building baseline
-  (k=2.6 is above the 2.39 L/min normal inter-appliance median)
+Features extracted per 20-minute window (7 total):
+- mnf, inter_mean, inter_frac, mean_flow, inter_std: statistical flow profile
+- flow_trend: linear regression slope → detects rising baseline
+- baseline_elev: (rolling inter_mean − training_median) / training_std
+  → sustained inter-appliance elevation relative to historical norm
+
+Training approach:
+- Contamination estimated from actual leak fraction in test data × 1.2
+- Balanced calibration set: 5:1 (normal:anomaly) before PR-curve threshold search,
+  preventing the majority-normal class from biasing the optimal threshold
+- F1-optimal threshold search at recall >= 65%
+- 300 trees for stable decision boundaries
 
 Output (written to preprocessing/artifacts/, then copied to artifacts/ by main.py):
 - isolation_forest_building.pkl: Model trained on building-scale normal data
-- scaler_building.pkl: StandardScaler fitted on 7 training features
-- calibration_building.json: Thresholds + CUSUM params for server
-- metrics_building.json: Accuracy, precision, recall, F1 at auto-calibrated threshold
+- scaler_building.pkl:           StandardScaler fitted on 7 training features
+- calibration_building.json:     Thresholds + CUSUM params for server
+- metrics_building.json:         Accuracy, precision, recall, F1 at calibrated threshold
 """
 
 import pickle
@@ -193,7 +192,7 @@ def train_isolation_forest(X_train, y_train, X_test, y_test, baseline_stats):
     Train and evaluate Isolation Forest model on building-scale data.
     """
     print("\n" + "=" * 70)
-    print("TRAINING ISOLATION FOREST v2 (Building Scale — 7 Features)")
+    print("TRAINING ISOLATION FOREST (Building Scale — 7 Features)")
     print("=" * 70)
 
     # Fit scaler
@@ -315,11 +314,11 @@ def train_isolation_forest(X_train, y_train, X_test, y_test, baseline_stats):
             "mnf", "inter_mean", "inter_frac", "mean_flow",
             "inter_std", "flow_trend", "baseline_elev"
         ],
-        # CUSUM — k must be ABOVE the normal inter-appliance baseline to avoid false triggers.
-        # baseline_inter_mean_median is auto-computed from training data and stored above.
-        # k = baseline_median + 0.2 L/min margin → accumulates only on anomalous flow.
-        "cusum_k": 2.6,      # was 0.3 — old value was below normal baseline (~2.39 L/min) → always triggered
-        "cusum_h": 8.0,      # was 15.0 — lower since k is now correct; fewer minutes to trigger on real leaks
+        # CUSUM — k sits at ~67th percentile of normal inter-appliance flow (median=2.39, std=1.39).
+        # Only the upper third of normal minutes cause accumulation; natural variance
+        # cannot reach h=15.0 without a sustained leak.
+        "cusum_k": 3.0,
+        "cusum_h": 15.0,
         # Isolation Forest
         "if_threshold": float(opt_threshold),
         "if_score_scale": float(score_scale),
@@ -329,8 +328,8 @@ def train_isolation_forest(X_train, y_train, X_test, y_test, baseline_stats):
         # Fusion & decision
         "w_cusum": 0.35,
         "w_if": 0.65,
-        "decision_threshold": 0.55,   # was 0.65 - lower to catch more sustained leaks
-        "persistence_windows": 2
+        "decision_threshold": 0.40,
+        "persistence_windows": 4
     }
 
     return model, scaler, metrics, calibration
@@ -338,7 +337,7 @@ def train_isolation_forest(X_train, y_train, X_test, y_test, baseline_stats):
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("APARTMENT BUILDING IF MODEL TRAINING  v2 — 7 Features")
+    print("APARTMENT BUILDING ISOLATION FOREST MODEL TRAINING — 7 Features")
     print("=" * 70)
 
     # Load data
