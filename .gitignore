@@ -1,6 +1,28 @@
-# CSV data files
+# Ignore CSV data files
 *.csv
 
-#zip files
+# Ignore zip files
 *.zip
 
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.ipynb_checkpoints/
+
+venv/
+env/
+.venv/
+.env/
+
+*.log
+*.tmp
+*.swp
+
+.DS_Store
+Thumbs.db
+
+*~
+
+simulator_data/
