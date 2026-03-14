@@ -92,7 +92,7 @@ class HybridWaterAnomalyDetector:
         mnf = float(np.percentile(nonzero, 10)) if len(nonzero) > 0 else 0.0
 
         inter_mean = float(inter.mean()) if len(inter) > 0 else 0.0
-        inter_frac = float((inter > 0.02).mean()) if len(inter) > 0 else 0.0
+        inter_frac = float((inter > self.noise_floor).mean()) if len(inter) > 0 else 0.0
         inter_std = float(inter.std()) if len(inter) > 0 else 0.0
 
         mean_flow = float(window.mean())

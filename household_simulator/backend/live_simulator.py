@@ -27,7 +27,6 @@ class LiveWaterFlowGenerator:
             np.random.seed(seed)
 
         self.wm_offset = np.random.randint(7)
-        self.dw_offset = np.random.randint(7)
 
         with open(priors_path) as f:
             self.priors = json.load(f)["appliances"]
@@ -134,8 +133,6 @@ class LiveWaterFlowGenerator:
             n_events = np.random.poisson(lam)
         elif name == "washingmachine":
             n_events = 1 if (day + self.wm_offset) % 7 == 0 else 0
-        elif name == "dishwasher30":
-            n_events = 1 if (day + self.dw_offset) % 7 == 0 else 0
         else:
             n_events = np.random.poisson(lam)
 

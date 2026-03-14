@@ -14,10 +14,6 @@ import pandas as pd
 import os
 import warnings
 
-# =============================
-# CONFIGURATION CONSTANTS
-# =============================
-
 # File paths and output configuration
 PRIORS_PATH = "all_appliances.json"  # Path to appliance configuration JSON
 OUTPUT_DIR = "simulator_data"  # Directory for simulation output files
