@@ -428,7 +428,7 @@ Features: 5-6 (depending on turbidity availability)
 
 This project uses realistic water consumption patterns from the **priors_india** dataset:
 
-- **Source:** [Placeholder: Repository link will be provided]
+- **Source:** [WEUSEDTO-Data Repository](https://github.com/AnnaDiMauro/WEUSEDTO-Data)
 - **Description:** Real-world water usage patterns from 617-day monitoring of multi-unit buildings in India
 - **Coverage:** Fixture types include shower, toilet, bidet, washbasin, kitchen faucet, washing machine, and dishwasher
 - **Standards:** Calibrated to MoHUA (Ministry of Housing and Urban Affairs) guidelines and BIS (Bureau of Indian Standards) specifications
