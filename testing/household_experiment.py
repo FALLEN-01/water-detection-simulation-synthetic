@@ -230,12 +230,15 @@ def run_single_simulation(leak_at_minute, leak_intensity_lpm, leak_duration_minu
     }
 
 
-def run_experiment(num_runs=20):
+def run_experiment(num_runs=20, intensity_min=0.2, intensity_max=0.8, intensity_label="medium"):
     """
     Run multiple leak detection experiments with randomized scenarios.
     
     Args:
         num_runs: Number of simulation iterations
+        intensity_min: Minimum leak intensity (L/min)
+        intensity_max: Maximum leak intensity (L/min)
+        intensity_label: Label for intensity level (low/medium/high)
     """
     # Ensure models are loaded
     load_models()
@@ -247,11 +250,11 @@ def run_experiment(num_runs=20):
     random.shuffle(leak_modes)
     
     print(f"\n{'='*60}")
-    print(f"HOUSEHOLD SIMULATOR - LEAK DETECTION TESTING")
+    print(f"HOUSEHOLD SIMULATOR - {intensity_label.upper()} LEAK DETECTION")
     print(f"{'='*60}")
     print(f"Number of runs: {num_runs}")
     print(f"Simulation window: {SIMULATION_MINUTES} minutes")
-    print(f"Leak intensity range: 0.2-0.8 L/min (household scale, optimal for detection)")
+    print(f"Leak intensity range: {intensity_min}-{intensity_max} L/min (household scale, {intensity_label})")
     print(f"Model tuning: CUSUM k=0.01, h=1.0 (highly sensitive)")
     print(f"Leak modes: 50/50 instant vs ramp (pre-shuffled for fairness)")
     
@@ -263,7 +266,7 @@ def run_experiment(num_runs=20):
         # Duration 100-200 minutes for sustained signal
         # Leak modes: Pre-shuffled for fair 50/50 distribution
         leak_at_minute = random.randint(100, SIMULATION_MINUTES - 150)
-        leak_intensity = random.uniform(0.2, 0.8)  # Optimal household range
+        leak_intensity = random.uniform(intensity_min, intensity_max)  # Use specified range
         leak_duration = random.randint(100, 200)  # Sustained 100-200 min
         selected_leak_mode = leak_modes[run_num]  # Use pre-shuffled mode
         
@@ -294,12 +297,13 @@ def run_experiment(num_runs=20):
     print(f"Recall:                {metrics['recall']:.2%}")
     print(f"F1-Score:              {metrics['f1_score']:.2f}")
     
-    # Save results
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    save_results_csv(results, RESULTS_DIR / "results.csv")
-    save_metrics_summary(metrics, RESULTS_DIR / "metrics_summary.txt")
-    plot_confusion_matrix(metrics, RESULTS_DIR / "confusion_matrix.png")
-    plot_accuracy_dashboard(metrics, RESULTS_DIR / "accuracy_dashboard.png")
+    # Save results in intensity-level subdirectory
+    intensity_dir = RESULTS_DIR / intensity_label.lower()
+    intensity_dir.mkdir(parents=True, exist_ok=True)
+    save_results_csv(results, intensity_dir / "results.csv")
+    save_metrics_summary(metrics, intensity_dir / "metrics_summary.txt")
+    plot_confusion_matrix(metrics, intensity_dir / "confusion_matrix.png")
+    plot_accuracy_dashboard(metrics, intensity_dir / "accuracy_dashboard.png")
     
     print(f"\nResults saved to {RESULTS_DIR}")
     
@@ -307,4 +311,7 @@ def run_experiment(num_runs=20):
 
 
 if __name__ == "__main__":
-    results, metrics = run_experiment(num_runs=20)
+    # Run three intensity levels: low, medium, high
+    run_experiment(num_runs=10, intensity_min=0.2, intensity_max=0.4, intensity_label="LOW")
+    run_experiment(num_runs=10, intensity_min=0.4, intensity_max=0.6, intensity_label="MEDIUM")
+    run_experiment(num_runs=10, intensity_min=0.6, intensity_max=0.8, intensity_label="HIGH")

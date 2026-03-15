@@ -34,11 +34,14 @@ def main():
     # Import experiment runners
     if args.simulator in ["household", "both"]:
         print("\n" + "="*70)
-        print("STARTING HOUSEHOLD SIMULATOR TESTS")
+        print("STARTING HOUSEHOLD SIMULATOR TESTS (LOW/MEDIUM/HIGH)")
         print("="*70)
         from household_experiment import run_experiment as run_household
         try:
-            results_h, metrics_h = run_household(num_runs=args.runs)
+            # Run all three intensity levels
+            run_household(num_runs=args.runs, intensity_min=0.2, intensity_max=0.4, intensity_label="LOW")
+            run_household(num_runs=args.runs, intensity_min=0.4, intensity_max=0.6, intensity_label="MEDIUM")
+            run_household(num_runs=args.runs, intensity_min=0.6, intensity_max=0.8, intensity_label="HIGH")
             print(f"\n✓ Household tests completed successfully")
         except Exception as e:
             print(f"\n✗ Household tests failed: {e}")
@@ -47,11 +50,14 @@ def main():
     
     if args.simulator in ["apartment", "both"]:
         print("\n" + "="*70)
-        print("STARTING APARTMENT SIMULATOR TESTS")
+        print("STARTING APARTMENT SIMULATOR TESTS (LOW/MEDIUM/HIGH)")
         print("="*70)
         from apartment_experiment import run_experiment as run_apartment
         try:
-            results_a, metrics_a = run_apartment(num_runs=args.runs)
+            # Run all three intensity levels
+            run_apartment(num_runs=args.runs, intensity_min=5.0, intensity_max=15.0, intensity_label="LOW")
+            run_apartment(num_runs=args.runs, intensity_min=15.0, intensity_max=25.0, intensity_label="MEDIUM")
+            run_apartment(num_runs=args.runs, intensity_min=25.0, intensity_max=40.0, intensity_label="HIGH")
             print(f"\n✓ Apartment tests completed successfully")
         except Exception as e:
             print(f"\n✗ Apartment tests failed: {e}")
