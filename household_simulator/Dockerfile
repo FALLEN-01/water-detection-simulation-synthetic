@@ -14,8 +14,7 @@ COPY requirements.txt .
 # Install Python dependencies (TensorFlow/Keras already included in image)
 RUN pip install --upgrade --ignore-installed --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY all_appliances.json .
+# Copy application files.
 COPY artifacts/ ./artifacts/
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
