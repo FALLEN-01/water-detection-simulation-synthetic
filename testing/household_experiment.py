@@ -1,0 +1,310 @@
+"""
+Experiment runner for household simulator.
+Tests leak detection accuracy with randomized leak injection scenarios.
+"""
+
+import sys
+import json
+import pickle
+import random
+import numpy as np
+from pathlib import Path
+from collections import deque
+import importlib.util
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Configuration
+# ─────────────────────────────────────────────────────────────────────
+
+HOUSEHOLD_DIR = Path(__file__).parent.parent / "household_simulator"
+ARTIFACTS_DIR = HOUSEHOLD_DIR / "artifacts"
+RESULTS_DIR = Path(__file__).parent / "results" / "household"
+
+WINDOW_MINUTES = 20
+SIMULATION_MINUTES = 600  # Extended: 10 hours (need room for 100+ min leaks at minute 100+)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Dynamic imports to avoid conflicts
+# ─────────────────────────────────────────────────────────────────────
+
+def load_household_modules():
+    """Dynamically import household-specific modules."""
+    # Import household live_simulator
+    hh_sim_spec = importlib.util.spec_from_file_location(
+        "household_live_simulator",
+        str(HOUSEHOLD_DIR / "backend" / "live_simulator.py")
+    )
+    hh_sim = importlib.util.module_from_spec(hh_sim_spec)
+    hh_sim_spec.loader.exec_module(hh_sim)
+    
+    # Import household model
+    hh_model_spec = importlib.util.spec_from_file_location(
+        "household_model",
+        str(HOUSEHOLD_DIR / "backend" / "model.py")
+    )
+    hh_model = importlib.util.module_from_spec(hh_model_spec)
+    hh_model_spec.loader.exec_module(hh_model)
+    
+    return hh_sim.LiveWaterFlowGenerator, hh_model.HybridWaterAnomalyDetector
+
+
+LiveWaterFlowGenerator, HouseholdHybridDetector = load_household_modules()
+
+from metrics_viz import calculate_metrics, plot_confusion_matrix, plot_accuracy_dashboard, save_results_csv, save_metrics_summary
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Global State (reset between runs)
+# ─────────────────────────────────────────────────────────────────────
+
+if_model = None
+if_scaler = None
+calibration = None
+leak_time = None
+detection_time = None
+flow_history = []
+cusum_history = []
+
+
+def load_models():
+    """Load pre-trained models and calibration (once at startup)."""
+    global if_model, if_scaler, calibration
+    
+    def load_pickle(path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    
+    def load_json(path):
+        with open(path) as f:
+            return json.load(f)
+    
+    if_model = load_pickle(ARTIFACTS_DIR / "if_model.pkl")
+    if_scaler = load_pickle(ARTIFACTS_DIR / "if_scaler.pkl")
+    calibration = load_json(ARTIFACTS_DIR / "if_calibration.json")
+    
+    print(f"Loaded models from {ARTIFACTS_DIR}")
+
+
+def create_fresh_detector():
+    """Create a brand new detector instance (fresh state every run)."""
+    return HouseholdHybridDetector(
+        if_model=if_model,
+        if_scaler=if_scaler,
+        cusum_k=calibration["cusum_k"],
+        cusum_h=calibration["cusum_h"],
+        if_threshold=calibration["if_threshold"],
+        if_score_scale=calibration["if_score_scale"],
+        appliance_flow_thresh=calibration["appliance_flow_thresh"],
+
+    )
+
+
+def reset_state(seed=None):
+    """
+    Reset all state variables for a fresh run.
+    Creates brand new detector and generator instances.
+    """
+    global leak_time, detection_time, flow_history, cusum_history
+    
+    leak_time = None
+    detection_time = None
+    flow_history = []
+    cusum_history = []
+    
+    # Create fresh instances (same as server.py startup)
+    generator = LiveWaterFlowGenerator(
+        ARTIFACTS_DIR / "all_appliances.json",
+        seed=seed
+    )
+    detector = create_fresh_detector()
+    
+    return generator, detector
+
+
+def inject_leak(at_minute, intensity_lpm, duration_minutes):
+    """
+    Inject a leak at a specific simulation minute.
+    
+    Args:
+        at_minute: Minute in simulation (0-SIMULATION_MINUTES)
+        intensity_lpm: Leak flow in L/min (>= 2.2 for IF detection)
+        duration_minutes: How long leak persists
+    """
+    global leak_time
+    leak_time = at_minute
+    generator.inject_leak(duration_minutes=duration_minutes, flow_lpm=intensity_lpm)
+
+
+def run_single_simulation(leak_at_minute, leak_intensity_lpm, leak_duration_minutes, leak_mode="instant"):
+    """
+    Run a single simulation with leak injection.
+    Uses EXACT same logic as server.py: manual leak addition (not generator.inject_leak).
+    Supports manual leak mode specification or randomization.
+    
+    Args:
+        leak_at_minute: When leak starts
+        leak_intensity_lpm: Leak flow intensity
+        leak_duration_minutes: How long leak lasts
+        leak_mode: "instant" or "ramp" (default: "instant")
+    
+    Returns:
+        Dict with result data
+    """
+    global leak_time, detection_time, flow_history, cusum_history
+    
+    # Create fresh instances for this run
+    generator, detector = reset_state(seed=random.randint(0, 1000000))
+    leak_time = None
+    detection_time = None
+    leak_end_minute = leak_at_minute + leak_duration_minutes
+    
+    # Use provided leak mode
+    leak_ramp_minutes = random.randint(5, 15) if leak_mode == "ramp" else 0
+    
+    window_buffer = deque(maxlen=WINDOW_MINUTES)
+    
+    # Run simulation (MATCHING server.py logic)
+    for minute in range(SIMULATION_MINUTES):
+        
+        # Get next flow reading
+        flow = generator.next()
+        
+        # ── MANUAL leak addition (same as server.py) ──
+        if leak_at_minute <= minute < leak_end_minute:
+            leak_time = leak_at_minute  # Record leak start
+            
+            if leak_mode == "instant":
+                # Immediate full intensity
+                effective_intensity = leak_intensity_lpm
+            elif leak_mode == "ramp":
+                # Gradual ramp up over leak_ramp_minutes
+                elapsed = minute - leak_at_minute
+                progress = min(1.0, elapsed / max(1, leak_ramp_minutes))
+                effective_intensity = leak_intensity_lpm * progress
+            else:
+                effective_intensity = leak_intensity_lpm
+            
+            flow += effective_intensity
+            flow = min(flow, generator.MAX_FLOW_LPM)
+        
+        flow_history.append(flow)
+        window_buffer.append(float(flow))
+        
+        # When window is full, run detection
+        if len(window_buffer) == WINDOW_MINUTES:
+            result = detector.update(list(window_buffer))
+            cusum_history.append(result["level2"]["score"])
+            
+            # Capture first detection
+            if result["anomaly"] and detection_time is None:
+                detection_time = minute
+    
+    # Calculate metrics
+    delay = None
+    false_alarm = False
+    missed_detection = False
+    
+    if leak_time is not None and detection_time is not None:
+        delay = detection_time - leak_time
+    
+    if detection_time is not None and leak_time is None:
+        # Alarm before leak = false alarm
+        false_alarm = True
+    
+    if leak_time is not None and detection_time is None:
+        # Leak occurred but no detection = missed
+        missed_detection = True
+    
+    return {
+        "leak_time": leak_time,
+        "detection_time": detection_time,
+        "delay": delay,
+        "false_alarm": false_alarm,
+        "missed_detection": missed_detection,
+        "leak_mode": leak_mode,
+        "leak_ramp_minutes": leak_ramp_minutes,
+        "flow_history": flow_history.copy(),
+        "cusum_history": cusum_history.copy(),
+    }
+
+
+def run_experiment(num_runs=20):
+    """
+    Run multiple leak detection experiments with randomized scenarios.
+    
+    Args:
+        num_runs: Number of simulation iterations
+    """
+    # Ensure models are loaded
+    load_models()
+    
+    # Pre-shuffle leak modes to ensure fair 50/50 distribution
+    leak_modes = ["instant", "ramp"] * (num_runs // 2)
+    if num_runs % 2 == 1:
+        leak_modes.append(random.choice(["instant", "ramp"]))
+    random.shuffle(leak_modes)
+    
+    print(f"\n{'='*60}")
+    print(f"HOUSEHOLD SIMULATOR - LEAK DETECTION TESTING")
+    print(f"{'='*60}")
+    print(f"Number of runs: {num_runs}")
+    print(f"Simulation window: {SIMULATION_MINUTES} minutes")
+    print(f"Leak intensity range: 0.2-0.8 L/min (household scale, optimal for detection)")
+    print(f"Model tuning: CUSUM k=0.01, h=1.0 (highly sensitive)")
+    print(f"Leak modes: 50/50 instant vs ramp (pre-shuffled for fairness)")
+    
+    results = []
+    
+    for run_num in range(num_runs):
+        # Household: Optimal detection range 0.2-0.8 L/min
+        # Start at 100+ minutes for detector initialization
+        # Duration 100-200 minutes for sustained signal
+        # Leak modes: Pre-shuffled for fair 50/50 distribution
+        leak_at_minute = random.randint(100, SIMULATION_MINUTES - 150)
+        leak_intensity = random.uniform(0.2, 0.8)  # Optimal household range
+        leak_duration = random.randint(100, 200)  # Sustained 100-200 min
+        selected_leak_mode = leak_modes[run_num]  # Use pre-shuffled mode
+        
+        print(f"\nRun {run_num + 1}/{num_runs}:")
+        print(f"  Leak at minute: {leak_at_minute}")
+        print(f"  Intensity: {leak_intensity:.2f} L/min (server.py cap: 0.1-2.0)")
+        print(f"  Duration: {leak_duration} minutes")
+        
+        result = run_single_simulation(leak_at_minute, leak_intensity, leak_duration, leak_mode=selected_leak_mode)
+        results.append(result)
+        
+        if result["detection_time"] is not None:
+            print(f"  ✓ Detected at minute {result['detection_time']} (delay: {result['delay']} min, mode: {result['leak_mode']})")
+        else:
+            print(f"  ✗ MISSED DETECTION (mode: {result['leak_mode']})")
+    
+    # Calculate metrics
+    metrics = calculate_metrics(results)
+    
+    print(f"\n{'='*60}")
+    print(f"RESULTS SUMMARY")
+    print(f"{'='*60}")
+    print(f"Detection Rate:        {metrics['detection_rate']:.2%}")
+    print(f"False Alarm Rate:      {metrics['false_alarm_rate']:.2%}")
+    print(f"Avg Detection Delay:   {metrics['avg_delay_seconds']:.2f} minutes")
+    print(f"Accuracy:              {metrics['accuracy']:.2%}")
+    print(f"Precision:             {metrics['precision']:.2%}")
+    print(f"Recall:                {metrics['recall']:.2%}")
+    print(f"F1-Score:              {metrics['f1_score']:.2f}")
+    
+    # Save results
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    save_results_csv(results, RESULTS_DIR / "results.csv")
+    save_metrics_summary(metrics, RESULTS_DIR / "metrics_summary.txt")
+    plot_confusion_matrix(metrics, RESULTS_DIR / "confusion_matrix.png")
+    plot_accuracy_dashboard(metrics, RESULTS_DIR / "accuracy_dashboard.png")
+    
+    print(f"\nResults saved to {RESULTS_DIR}")
+    
+    return results, metrics
+
+
+if __name__ == "__main__":
+    results, metrics = run_experiment(num_runs=20)

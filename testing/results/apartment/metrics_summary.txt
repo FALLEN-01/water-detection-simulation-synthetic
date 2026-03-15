@@ -1,0 +1,20 @@
+============================================================
+LEAK DETECTION TEST RESULTS
+============================================================
+
+DETECTION METRICS:
+  Detection Rate:        100.00%
+  False Alarm Rate:      0.00%
+  Avg Detection Delay:   -172.50 seconds
+
+ACCURACY METRICS:
+  Accuracy:              100.00%
+  Precision:             100.00%
+  Recall (Sensitivity):  100.00%
+  F1-Score:              1.00
+
+CONFUSION MATRIX:
+  True Positives:        10
+  False Positives:       0
+  False Negatives:       0
+  True Negatives:        0

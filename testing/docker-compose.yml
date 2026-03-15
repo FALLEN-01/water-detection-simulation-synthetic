@@ -1,0 +1,15 @@
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: water-simulator-testing
+    volumes:
+      - .:/app/testing
+      - ../household_simulator:/app/household_simulator
+      - ../apartment_simulator:/app/apartment_simulator
+      - ../models:/models:ro
+    working_dir: /app/testing
+    environment:
+      PYTHONUNBUFFERED: "1"
+    command: python run_tests.py --simulator both --runs 10
