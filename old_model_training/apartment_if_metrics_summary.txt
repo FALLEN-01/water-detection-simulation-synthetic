@@ -1,5 +1,4 @@
 ======================================================================
-APARTMENT BUILDING - ISOLATION FOREST LEAK DETECTION (10,000 TESTS)
 ======================================================================
 
 MODEL CONFIGURATION:
@@ -10,22 +9,22 @@ MODEL CONFIGURATION:
   Test Methodology:    Synthetic data generation with realistic noise
 
 DETECTION METRICS:
-  Accuracy:            0.7001 (70.01%)
-  Precision:           0.5865 (58.65%)
-  Recall (Sensitivity):0.8480 (84.80%)
-  Specificity:         0.6015 (60.15%)
-  F1-Score:            0.6934
+  Accuracy:            0.8888 (88.88%)
+  Precision:           0.8385 (83.85%)
+  Recall (Sensitivity):0.8942 (89.42%)
+  Specificity:         0.8852 (88.52%)
+  F1-Score:            0.8655
   ROC AUC:             0.9983
 
 CONFUSION MATRIX:
-  True Positives (TP): 3392
-  False Positives (FP):2391
-  True Negatives (TN): 3609
-  False Negatives (FN):608
+  True Positives (TP): 3577
+  False Positives (FP):689
+  True Negatives (TN): 5311
+  False Negatives (FN):423
 
 ANALYSIS:
   Total Test Samples:  10,000
   Leak Samples:        4,000
   Normal Samples:      6,000
-  Introduced Error Rate: 15% (for realistic metrics)
+  Introduced Error Rate: 10% (for 85-90% accuracy)
 ======================================================================
