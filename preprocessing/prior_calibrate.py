@@ -1,6 +1,20 @@
+"""
+Calibrate extracted appliance priors for a target region (India).
+
+The prior-extraction pipeline produces `priors/*.json` directly from empirical
+events. This script applies deterministic scaling factors to the flow-rate
+distributions (mean/peak), leaving timing and activation priors unchanged.
+
+Input:
+- `priors/*.json` (output of `extract_prior.py`)
+
+Output:
+- `priors_india/*.json` (calibrated priors used by simulators)
+"""
+
+import copy
 import json
 from pathlib import Path
-import copy
 
 # -------------------------
 # Paths

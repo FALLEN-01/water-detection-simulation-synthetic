@@ -42,6 +42,12 @@ python run_tests.py --simulator both --runs 20
 python run_tests.py --simulator household --runs 20
 ```
 
+On Windows/PowerShell you can also use `py`:
+
+```bash
+py run_tests.py --simulator both --runs 20
+```
+
 ## Test Parameters
 
 **Household Simulator** (single unit):

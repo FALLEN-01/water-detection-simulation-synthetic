@@ -133,6 +133,13 @@ python household_simulator/backend/server.py
 python apartment_simulator/backend/server.py
 ```
 
+On Windows/PowerShell you can use `py` instead of `python`:
+
+```bash
+py household_simulator/backend/server.py
+py apartment_simulator/backend/server.py
+```
+
 ## Requirements
 
 - Python 3.8+
@@ -317,6 +324,10 @@ Includes:
 - `02_live_simulator.md` - Flow simulation architecture (50-apartment aggregation)
 - `03_model.md` - Hybrid CUSUM + Isolation Forest detector implementation
 - `04_server.md` - FastAPI + Socket.IO server architecture
+
+### Household simulator README
+
+See `household_simulator/README.md` for household-specific setup and structure.
 
 ## License
 

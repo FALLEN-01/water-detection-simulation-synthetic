@@ -1,3 +1,18 @@
+"""
+Extract per-appliance prior distributions from merged event CSVs.
+
+This script reads `events_merged/*.csv` files produced by `event_merge.py` and
+fits simple distributions used by the synthetic simulators:
+- Activation: Poisson(lambda) events per day (including zero-event days)
+- Timing: categorical distribution over start hour (24 bins)
+- Duration: lognormal (or fixed if insufficient variance)
+- Flow: lognormal for mean and peak flow (or fixed if insufficient samples)
+- Shape: heuristic mapping per appliance
+
+Output:
+- `priors/*.json` (one file per appliance)
+"""
+
 import json
 from pathlib import Path
 
