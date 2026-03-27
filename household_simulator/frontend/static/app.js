@@ -203,11 +203,16 @@ function mkOpts(yMin = null, yMax = null) {
         ticks: {
           callback:     v => simMinLabel(v),
           maxTicksLimit: 6,
-          color:        '#475569'
+          color:        '#1e3a5f'
         },
-        grid: { color: 'rgba(255,255,255,0.04)' }
+        grid: { color: 'rgba(14,165,233,0.15)' }
       },
-      y: { min: yMin ?? undefined, max: yMax ?? undefined }
+      y: {
+        min: yMin ?? undefined,
+        max: yMax ?? undefined,
+        ticks: { color: '#1e3a5f' },
+        grid: { color: 'rgba(14,165,233,0.15)' }
+      }
     }
   }
 }
@@ -216,7 +221,7 @@ function initCharts() {
 
   charts.flow = new Chart(document.getElementById('cFlow'), {
     type: 'line',
-    data: { datasets: [{ data: [], borderColor: '#0ea5e9', fill: true, pointRadius: 0 }] },
+    data: { datasets: [{ data: [], borderColor: '#0369a1', backgroundColor: 'rgba(3,105,161,0.12)', fill: true, pointRadius: 0 }] },
     options: mkOpts(0, 15)
   })
 
@@ -224,8 +229,8 @@ function initCharts() {
     type: 'line',
     data: {
       datasets: [
-        { data: [], borderColor: '#06b6d4', fill: true,  pointRadius: 0 },
-        { data: [], borderColor: '#f59e0b', borderDash: [5, 3], pointRadius: 0 }
+        { data: [], borderColor: '#0891b2', backgroundColor: 'rgba(8,145,178,0.1)', fill: true, pointRadius: 0 },
+        { data: [], borderColor: '#d97706', borderDash: [5, 3], pointRadius: 0 }
       ]
     },
     options: mkOpts()
@@ -235,8 +240,8 @@ function initCharts() {
     type: 'line',
     data: {
       datasets: [
-        { data: [], borderColor: '#8b5cf6', fill: true,  pointRadius: 0 },
-        { data: [], borderColor: '#ef4444', borderDash: [3, 3], pointRadius: 0 }
+        { data: [], borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.08)', fill: true, pointRadius: 0 },
+        { data: [], borderColor: '#dc2626', borderDash: [3, 3], pointRadius: 0 }
       ]
     },
     options: mkOpts(0, 1)
@@ -246,8 +251,8 @@ function initCharts() {
     type: 'scatter',
     data: {
       datasets: [
-        { data: [], backgroundColor: '#0ea5e9', pointRadius: 3 },
-        { data: [], backgroundColor: '#ef4444', pointRadius: 3 }
+        { data: [], backgroundColor: '#0369a1', pointRadius: 3 },
+        { data: [], backgroundColor: '#dc2626', pointRadius: 3 }
       ]
     },
     options: mkOpts(0, 15)
